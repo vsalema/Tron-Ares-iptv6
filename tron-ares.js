@@ -29,6 +29,365 @@ const channels = [];      // Liste M3U principale
 const iframeItems = [];   // Overlays / iFrames
 
 // =====================================================
+// 🔒 RESTRICTION FILMS (channelList / listType === 'channels')
+// - Aperçu 5 minutes, puis demande un PIN pour continuer
+// - PIN : hash SHA-256 en localStorage, déverrouillage temporaire en sessionStorage
+// ⚠️ Contrôle côté navigateur uniquement (pratique, pas une “sécurité anti-hack”)
+// =====================================================
+const MOVIE_LOCK = {
+  enabled: true,
+  previewSeconds: 5 * 60,
+  unlockMinutes: 60,
+  pinHashKey: 'tronAresMoviePinHash',
+  unlockedUntilKey: 'tronAresMovieUnlockedUntil',
+  previewExpiredKey: 'tronAresMoviePreviewExpired',
+  _modal: null
+};
+
+// --- état aperçu ---
+let filmPreviewTimer = null;
+let filmPreviewArmedForUrl = null;
+let pendingFilmResume = null; // { entry, time, url }
+
+function isFilmEntry(entry) {
+  // "Films" = listType === 'channels'
+  return !!(entry && entry.listType === 'channels');
+}
+
+function _hex(buffer) {
+  return Array.from(new Uint8Array(buffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function sha256(text) {
+  const enc = new TextEncoder().encode(String(text ?? ''));
+  const digest = await crypto.subtle.digest('SHA-256', enc);
+  return _hex(digest);
+}
+
+function movieLockGetHash() {
+  try { return localStorage.getItem(MOVIE_LOCK.pinHashKey) || ''; } catch { return ''; }
+}
+
+function movieLockHasPin() {
+  return !!movieLockGetHash();
+}
+
+function movieLockGetUnlockedUntil() {
+  try {
+    const v = sessionStorage.getItem(MOVIE_LOCK.unlockedUntilKey);
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function movieLockIsUnlocked() {
+  if (!MOVIE_LOCK.enabled) return true;
+  return Date.now() < movieLockGetUnlockedUntil();
+}
+
+function movieLockSetUnlocked(minutes = MOVIE_LOCK.unlockMinutes) {
+  const until = Date.now() + Math.max(1, Number(minutes) || 1) * 60_000;
+  try { sessionStorage.setItem(MOVIE_LOCK.unlockedUntilKey, String(until)); } catch {}
+  try { sessionStorage.removeItem(MOVIE_LOCK.previewExpiredKey); } catch {}
+  updateFilmAccessBtnUI?.();
+  return until;
+}
+
+function movieLockLockNow() {
+  try { sessionStorage.removeItem(MOVIE_LOCK.unlockedUntilKey); } catch {}
+  updateFilmAccessBtnUI?.();
+}
+
+async function movieLockCheckPin(pin) {
+  const stored = movieLockGetHash();
+  if (!stored) return false;
+  const h = await sha256(pin);
+  return h === stored;
+}
+
+async function movieLockSetPin(pin) {
+  const clean = String(pin ?? '').trim();
+  if (!clean || clean.length < 4) return false;
+  const h = await sha256(clean);
+  try { localStorage.setItem(MOVIE_LOCK.pinHashKey, h); } catch {}
+  return true;
+}
+
+// --- Modal : HTML dans index.html, JS = seulement pilotage ---
+function movieLockEnsureModal() {
+  if (MOVIE_LOCK._modal) return MOVIE_LOCK._modal;
+
+  const backdrop = document.getElementById('movieLockBackdrop');
+  if (!backdrop) {
+    console.warn('[movieLock] #movieLockBackdrop introuvable dans index.html');
+    // fallback minimal : pas de modal
+    MOVIE_LOCK._modal = {
+      open() { alert('Modal manquant : ajoute #movieLockBackdrop dans index.html'); },
+      close() {},
+      flash() {}
+    };
+    return MOVIE_LOCK._modal;
+  }
+
+  const hint = backdrop.querySelector('#movieLockHint');
+  const input = backdrop.querySelector('#movieLockPinInput');
+  const unlockBtn = backdrop.querySelector('#movieLockUnlockBtn');
+  const setPinBtn = backdrop.querySelector('#movieLockSetPinBtn');
+  const lockBtn = backdrop.querySelector('#movieLockLockBtn');
+  const cancelBtn = backdrop.querySelector('#movieLockCancelBtn');
+
+  const api = {
+    backdrop, hint, input,
+    _onSuccess: null,
+    open(onSuccess) {
+      api._onSuccess = typeof onSuccess === 'function' ? onSuccess : null;
+
+      if (hint) {
+        hint.textContent = movieLockHasPin()
+          ? "Entrez votre PIN pour déverrouiller l’accès aux Films."
+          : "Aucun PIN n’est défini. Cliquez sur « Définir / changer PIN » pour activer la restriction.";
+      }
+
+      if (input) input.value = '';
+      backdrop.classList.remove('hidden');
+      backdrop.setAttribute('aria-hidden', 'false');
+      setTimeout(() => { try { input?.focus?.(); } catch {} }, 0);
+    },
+    close() {
+      backdrop.classList.add('hidden');
+      backdrop.setAttribute('aria-hidden', 'true');
+      api._onSuccess = null;
+    },
+    flash(msg) {
+      if (!hint) return;
+      hint.textContent = msg;
+      hint.classList.add('tron-lock-warn');
+      setTimeout(() => hint.classList.remove('tron-lock-warn'), 650);
+    }
+  };
+
+  const tryUnlock = async () => {
+    if (!movieLockHasPin()) {
+      api.flash("Définis d’abord un PIN.");
+      return;
+    }
+    const ok = await movieLockCheckPin(input?.value);
+    if (!ok) {
+      api.flash("PIN incorrect.");
+      return;
+    }
+
+    movieLockSetUnlocked();
+    api.close();
+
+    // Rafraîchit l'UI
+    try { refreshActiveListsUI?.(); } catch {}
+
+    if (typeof api._onSuccess === 'function') api._onSuccess();
+    try { setStatus?.('Films déverrouillés'); } catch {}
+  };
+
+  // bind une seule fois
+  if (!backdrop.dataset.bound) {
+    backdrop.dataset.bound = '1';
+
+    unlockBtn?.addEventListener('click', (e) => { e.preventDefault(); tryUnlock(); });
+    input?.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryUnlock(); } });
+
+    setPinBtn?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      const p1 = prompt('Définis un nouveau PIN (4 chiffres ou plus) :');
+      if (p1 === null) return;
+      const p2 = prompt('Confirme le PIN :');
+      if (p2 === null) return;
+      if (String(p1) !== String(p2)) { api.flash('Les PIN ne correspondent pas.'); return; }
+
+      const ok = await movieLockSetPin(p1);
+      if (!ok) { api.flash('PIN invalide (minimum 4 caractères).'); return; }
+
+      api.flash('PIN enregistré. Tu peux déverrouiller.');
+    });
+
+    lockBtn?.addEventListener('click', (e) => {
+      e.preventDefault();
+      movieLockLockNow();
+      api.flash('Films verrouillés.');
+      try { refreshActiveListsUI?.(); } catch {}
+      try { setStatus?.('Films verrouillés'); } catch {}
+    });
+
+    cancelBtn?.addEventListener('click', (e) => { e.preventDefault(); api.close(); });
+
+    backdrop.addEventListener('click', (e) => { if (e.target === backdrop) api.close(); });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (backdrop.classList.contains('hidden')) return;
+      api.close();
+    });
+  }
+
+  MOVIE_LOCK._modal = api;
+  return api;
+}
+
+// --- wrappers compat (anciens noms utilisés ailleurs) ---
+function hasFilmAccess() {
+  return movieLockIsUnlocked();
+}
+
+function setFilmAccessGranted() {
+  movieLockSetUnlocked();
+  try { updateFilmAccessBtnUI?.(); } catch {}
+}
+
+function isFilmPreviewExpired() {
+  try { return sessionStorage.getItem(MOVIE_LOCK.previewExpiredKey) === '1'; } catch { return false; }
+}
+
+function setFilmPreviewExpired() {
+  try { sessionStorage.setItem(MOVIE_LOCK.previewExpiredKey, '1'); } catch {}
+}
+
+function clearFilmPreviewTimer() {
+  if (filmPreviewTimer) {
+    clearTimeout(filmPreviewTimer);
+    filmPreviewTimer = null;
+  }
+  filmPreviewArmedForUrl = null;
+}
+
+function ensureFilmAccessOverlay() {
+  // maintenant : le HTML est dans index.html (movieLockBackdrop)
+  movieLockEnsureModal();
+}
+
+function closeFilmAccessOverlay() {
+  const m = movieLockEnsureModal();
+  m.close();
+}
+
+// Ouvre le modal et, si besoin, reprend la lecture après déverrouillage
+function openFilmAccessOverlay(opts = {}) {
+  ensureFilmAccessOverlay();
+
+  const resumeEntry = opts.resumeEntry || null;
+  const resumeTime = (typeof opts.resumeTime === 'number' && isFinite(opts.resumeTime)) ? opts.resumeTime : 0;
+
+  if (resumeEntry && resumeEntry.url) {
+    pendingFilmResume = { entry: resumeEntry, time: resumeTime, url: resumeEntry.url };
+  } else {
+    pendingFilmResume = null;
+  }
+
+  const m = movieLockEnsureModal();
+  m.open(() => {
+    // reprise éventuelle
+    if (pendingFilmResume?.entry?.url) {
+      const { entry, time } = pendingFilmResume;
+      pendingFilmResume = null;
+
+      try {
+        // playUrl existe plus bas dans le fichier (function hoisting OK)
+        playUrl(entry);
+        // reprise au temps demandé (si VOD)
+        if (videoEl && typeof time === 'number' && isFinite(time) && time > 0) {
+          const t = time;
+          const seekOnce = () => {
+            try { videoEl.currentTime = t; } catch {}
+            videoEl.removeEventListener('loadedmetadata', seekOnce);
+          };
+          videoEl.addEventListener('loadedmetadata', seekOnce);
+        }
+      } catch {}
+    }
+  });
+}
+
+// Ancienne validation “code” -> maintenant validation PIN
+async function handleFilmAccessCode(code) {
+  ensureFilmAccessOverlay();
+  const m = movieLockEnsureModal();
+  const ok = await movieLockCheckPin(code);
+  if (!ok) {
+    m.flash('PIN incorrect.');
+    return;
+  }
+  setFilmAccessGranted();
+  m.close();
+}
+
+// Lance un timer de 5 minutes quand on joue un film (si pas déverrouillé)
+function armFilmPreviewTimer(entry) {
+  if (!entry || !entry.url) return;
+
+  // si déjà déverrouillé : pas d'aperçu
+  if (hasFilmAccess()) {
+    clearFilmPreviewTimer();
+    return;
+  }
+
+  // éviter de ré-armer inutilement sur le même flux
+  if (filmPreviewArmedForUrl === entry.url && filmPreviewTimer) return;
+
+  clearFilmPreviewTimer();
+  filmPreviewArmedForUrl = entry.url;
+
+  const start = () => {
+    if (filmPreviewTimer) clearTimeout(filmPreviewTimer);
+
+    filmPreviewTimer = setTimeout(() => {
+      try {
+        // si entre temps c'est déverrouillé, on ne bloque pas
+        if (hasFilmAccess()) return;
+
+        setFilmPreviewExpired();
+        try { videoEl?.pause?.(); } catch {}
+
+        // demande PIN pour continuer, + reprise au currentTime
+        const t = (videoEl && Number.isFinite(videoEl.currentTime)) ? videoEl.currentTime : 0;
+        openFilmAccessOverlay({ resumeEntry: entry, resumeTime: t });
+
+        try { setStatus?.('Prévisualisation terminée : PIN requis pour continuer'); } catch {}
+      } catch (e) {
+        console.warn('Film preview timer error', e);
+      }
+    }, MOVIE_LOCK.previewSeconds * 1000);
+  };
+
+  // Démarre au vrai "playing" pour coller au temps de visionnage
+  const onPlaying = () => {
+    try { videoEl?.removeEventListener?.('playing', onPlaying); } catch {}
+    start();
+  };
+
+  if (videoEl && !videoEl.paused && !videoEl.ended) start();
+  else videoEl?.addEventListener?.('playing', onPlaying, { once: true });
+
+  try { setStatus?.('Prévisualisation film : 5 minutes avant PIN'); } catch {}
+}
+
+function updateFilmAccessBtnUI() {
+  const btn = document.getElementById('filmAccessBtn');
+  if (!btn) return;
+  const ok = hasFilmAccess();
+  btn.textContent = ok ? '🔓 Films' : '🔒 Films';
+  btn.title = ok ? 'Accès Films activé' : 'Accès Films';
+}
+
+// Utilisé au moment de jouer : si l’aperçu est “expiré”, on bloque jusqu’au PIN
+function maybeBlockFilmBecausePreviewExpired(entry) {
+  if (!MOVIE_LOCK.enabled) return false;
+  if (!isFilmEntry(entry)) return false;
+  if (hasFilmAccess()) return false;
+  if (!isFilmPreviewExpired()) return false;
+
+  openFilmAccessOverlay({ resumeEntry: entry, resumeTime: 0 });
+  return true;
+}
+
+// =====================================================
 // ✅ UID GLOBAL UNIQUE (PERSISTANT) + HELPERS ID/LOGO
 // =====================================================
 let uid = Number(localStorage.getItem('tronAresUid') || '0');
@@ -411,7 +770,16 @@ function deriveLogoFromName(name) {
 }
 
 function isProbablyHls(url) {
-  return /\.m3u8(\?|$)/i.test(url);
+  if (!url) return false;
+  // ✅ HLS "classique" (.m3u8) + heuristiques pour les URLs sans extension
+  // (ex: URLs sécurisées / tokenisées qui pointent vers un manifest HLS)
+  return (
+    /\.m3u8(\?|$)/i.test(url) ||
+    /(^|\/)(hls)(\/|-|_)/i.test(url) ||
+    /hls-vod/i.test(url) ||
+    /\/manifest(\?|$)/i.test(url) ||
+    /\/master(\?|$)/i.test(url)
+  );
 }
 function isProbablyDash(url) {
   return /\.mpd(\?|$)/i.test(url);
@@ -1162,6 +1530,17 @@ function fallbackToExternalPlayer(entry) {
 function playUrl(entry) {
   if (!entry || !entry.url || !videoEl) return;
 
+  // 🔒 Films : si l’aperçu est terminé et pas déverrouillé, on bloque jusqu’au PIN
+  if (isFilmEntry(entry)) {
+    if (maybeBlockFilmBecausePreviewExpired(entry)) {
+      try { setStatus('Accès Films requis'); } catch {}
+      return;
+    }
+  } else {
+    // si on quitte l'onglet films, on stoppe le timer d'aperçu
+    clearFilmPreviewTimer();
+  }
+
   // stop radio si elle joue
   if (typeof radioAudio !== 'undefined' && radioPlaying) {
     try { radioAudio.pause(); } catch {}
@@ -1264,6 +1643,18 @@ function playUrl(entry) {
       ) {
         videoEl.currentTime = savedPos;
       }
+
+      // ✅ reprise après déverrouillage Films (best-effort)
+      try {
+        if (pendingFilmResume && pendingFilmResume.url === entry.url) {
+          const t = Number(pendingFilmResume.time || 0);
+          pendingFilmResume = null;
+          if (isFinite(t) && t > 0) {
+            // léger offset pour éviter d'être exactement sur une limite de segment
+            videoEl.currentTime = Math.max(0, t - 0.2);
+          }
+        }
+      } catch {}
     } catch (e) {
       console.warn('Erreur reprise position', e);
     }
@@ -1271,6 +1662,14 @@ function playUrl(entry) {
   };
 
   videoEl.play().catch(() => {});
+
+  // 🔒 démarre le timer d'aperçu (5 min) uniquement pour les Films si pas d'accès
+  if (isFilmEntry(entry) && !hasFilmAccess()) {
+    armFilmPreviewTimer(entry);
+  } else {
+    clearFilmPreviewTimer();
+  }
+
   updateNowPlaying(entry, modeLabel);
   setStatus('Lecture en cours');
 
@@ -1813,6 +2212,17 @@ if (clearSearchBtn && globalSearchInput) {
     if (wrapper) wrapper.classList.remove('has-text');
     renderLists();
     scrollToActiveItem();
+  });
+}
+
+
+// Bouton 🔒 Films (ouvre le modal d'accès)
+const filmAccessBtn = document.getElementById('filmAccessBtn');
+if (filmAccessBtn) {
+  updateFilmAccessBtnUI();
+  filmAccessBtn.addEventListener('click', (ev) => {
+    ev.preventDefault();
+    openFilmAccessOverlay();
   });
 }
 
