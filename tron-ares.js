@@ -2151,9 +2151,7 @@ document.addEventListener('click', () => closeAllTrackMenus());
 (function seedDemo() {
   const customOverlays = [
     
-    
-     { title: "CMTV", logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/cmtv.png", url: "https://vsalema.github.io/Tron-Ares-iptv6/?streamUrl=https%3A%2F%2Fstr30.vidoza.net%2Fvod%2Fv2%2Fnvl4ianfjafeieno3xudxwvemcozvtqkdtkhc7ye4m6qg2jsoxbazpcmoede5xjcve%2Fv.mp4&title=Overlay+iFrame&autoplay=1
-    " },
+    { title: "CMTV", logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/cmtv.png", url: "https://vsalema.github.io/Tron-Ares-iptv6/?streamUrl=https%3A%2F%2Fstr30.vidoza.net%2Fvod%2Fv2%2Fnvl4ianfjafeieno3xudxwvemcozvtqkdtkhc7ye4m6qg2jsoxbazpcmoede5xjcve%2Fv.mp4&title=Overlay+iFrame&autoplay=1" },
     { title: "CMTV", logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/cmtv.png", url: "//popcdn.day/player.php?stream=CMTVPT" },
     { title: "TVI",  logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/TVI.png", url: "https://vsalema.github.io/tvi2/" },
     { title: "TVIR", logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/tvir.jpg", url: "https://vsalema.github.io/tvi-reality/" },
