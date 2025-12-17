@@ -162,11 +162,10 @@
         <button class="btn btn-ghost" id="themeToggleBtn">Thème : Cyan/Orange</button>
         <button class="btn btn-ghost" id="fxToggleBtn">FX Tron+</button>
         <button class="btn btn-ghost" id="pipToggleBtn">PiP</button>
+        <button class="btn btn-ghost btn-icon" id="openStreamUrlBtn" title="Tester un Stream URL">🔗</button>
         <button class="btn btn-ghost" id="toggleOverlayBtn">Vidéo / iFrame</button>
         <button class="btn btn-ghost" id="fullPageBtn">Plein écran</button>
-                <button class="btn btn-ghost" id="shareLinkBtn">Partager</button>
-<button class="btn btn-ghost btn-icon" id="metricsToggleBtn" title="Infos lecture">ⓘ</button>
-<button class="toggle-sidebar-btn" id="toggleSidebarBtn" aria-label="Menu sidebar">
+        <button class="toggle-sidebar-btn" id="toggleSidebarBtn" aria-label="Menu sidebar">
           <span class="burger-left">☰</span>
           <span class="burger-center"></span>
           <span class="burger-right">☰</span>
@@ -181,14 +180,6 @@
           <iframe id="iframeEl" allowfullscreen></iframe>
         </div>
       </div>
-<div class="metrics-panel" id="metricsPanel" aria-hidden="true">
-  <div class="metrics-head">
-    <span class="metrics-title">Infos</span>
-    <button class="metrics-close" id="metricsCloseBtn" title="Fermer">✕</button>
-  </div>
-  <div class="metrics-body" id="metricsBody"></div>
-</div>
-
     </section>
 <!-- RADIO FULLSCREEN INSIDE PLAYER -->
 <div id="radioPanel" class="radio-panel hidden" aria-hidden="true">
@@ -268,6 +259,30 @@
     </footer>
   
 </main>
+</div>
+
+<!-- STREAM URL (Akamai-style) -->
+<div id="streamUrlOverlay" class="streamurl-overlay hidden" aria-hidden="true">
+  <div class="streamurl-card" role="dialog" aria-modal="true" aria-label="Stream URL">
+    <div class="streamurl-header">
+      <div class="streamurl-title">Stream URL</div>
+      <button id="streamUrlCloseBtn" class="streamurl-close" title="Fermer">✕</button>
+    </div>
+
+    <label class="streamurl-label" for="streamUrlInput">URL</label>
+    <input id="streamUrlInput" class="streamurl-input" type="url" inputmode="url"
+           placeholder="https://…/master.m3u8 (ou .mpd / mp3 / aac)">
+
+    <label class="streamurl-label" for="streamTitleInput">Titre (option)</label>
+    <input id="streamTitleInput" class="streamurl-input" type="text" placeholder="Nom affiché">
+
+    <div class="streamurl-actions">
+      <button id="streamUrlPlayBtn" class="btn btn-accent">Play</button>
+      <button id="streamUrlCopyBtn" class="btn btn-ghost">Copier lien</button>
+    </div>
+
+    <div class="streamurl-hint">Astuce : tu peux aussi ouvrir directement <span>?streamUrl=…</span></div>
+  </div>
 </div>
 
 <script src="tron-ares.js"></script>

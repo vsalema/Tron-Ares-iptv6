@@ -113,7 +113,6 @@ const jsonArea = document.getElementById('jsonArea');
 
 const toggleOverlayBtn = document.getElementById('toggleOverlayBtn');
 const fullPageBtn = document.getElementById('fullPageBtn');
-const shareLinkBtn = document.getElementById('shareLinkBtn');
 const playerContainer = document.getElementById('playerContainer');
 const appShell = document.getElementById('appShell');
 
@@ -123,6 +122,15 @@ const nextBtn = document.getElementById('nextBtn');
 const fxToggleBtn = document.getElementById('fxToggleBtn');
 const pipToggleBtn = document.getElementById('pipToggleBtn');
 const themeToggleBtn = document.getElementById('themeToggleBtn');
+
+// --- Stream URL (Akamai-style) ---
+const openStreamUrlBtn = document.getElementById('openStreamUrlBtn');
+const streamUrlOverlay = document.getElementById('streamUrlOverlay');
+const streamUrlInput = document.getElementById('streamUrlInput');
+const streamTitleInput = document.getElementById('streamTitleInput');
+const streamUrlPlayBtn = document.getElementById('streamUrlPlayBtn');
+const streamUrlCopyBtn = document.getElementById('streamUrlCopyBtn');
+const streamUrlCloseBtn = document.getElementById('streamUrlCloseBtn');
 
 // --- Contrôles pistes (now-playing) ---
 const npTracks = document.getElementById('npTracks');
@@ -310,6 +318,88 @@ npTracks?.classList.add('hidden');
 function setStatus(text) {
   if (statusPill) statusPill.textContent = text;
 }
+// =====================================================
+// STREAM URL (Akamai-style)
+// =====================================================
+function getQueryParams() {
+  try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); }
+}
+
+function normalizeStreamUrl(u) {
+  if (!u) return '';
+  let url = String(u).trim();
+  if (!url) return '';
+  if (url.startsWith('//')) url = window.location.protocol + url;
+  return url;
+}
+
+function buildStreamShareLink(streamUrl, title) {
+  const url = new URL(window.location.href);
+  url.searchParams.set('streamUrl', streamUrl);
+  if (title) url.searchParams.set('title', title);
+  else url.searchParams.delete('title');
+  url.searchParams.set('autoplay', '1');
+  return url.toString();
+}
+
+function openStreamUrlPanel(prefillFromQuery = true) {
+  if (!streamUrlOverlay) return;
+  streamUrlOverlay.classList.remove('hidden');
+  streamUrlOverlay.setAttribute('aria-hidden', 'false');
+
+  if (prefillFromQuery) {
+    const qs = getQueryParams();
+    const qUrl = normalizeStreamUrl(qs.get('streamUrl'));
+    const qTitle = (qs.get('title') || '').trim();
+    if (streamUrlInput) streamUrlInput.value = qUrl || (streamUrlInput.value || '');
+    if (streamTitleInput) streamTitleInput.value = qTitle || (streamTitleInput.value || '');
+  }
+
+  setTimeout(() => {
+    try { streamUrlInput?.focus(); streamUrlInput?.select(); } catch {}
+  }, 0);
+}
+
+function closeStreamUrlPanel() {
+  if (!streamUrlOverlay) return;
+  streamUrlOverlay.classList.add('hidden');
+  streamUrlOverlay.setAttribute('aria-hidden', 'true');
+}
+
+function playDirectStream(url, title, { updateUrl = true } = {}) {
+  const cleanUrl = normalizeStreamUrl(url);
+  if (!cleanUrl) {
+    setStatus('Stream URL vide');
+    return;
+  }
+
+  const entry = {
+    id: `direct-${Date.now()}`,
+    name: (title && String(title).trim()) ? String(title).trim() : 'Stream URL',
+    url: cleanUrl,
+    group: 'Direct',
+    isFavorite: false,
+    listType: 'direct'
+  };
+
+  activePlaybackMode = 'stream';
+  try { iframeOverlay?.classList.add('hidden'); } catch {}
+  try { iframeEl && (iframeEl.src = 'about:blank'); } catch {}
+
+  playUrl(entry);
+
+  if (updateUrl) {
+    try {
+      const next = new URL(window.location.href);
+      next.searchParams.set('streamUrl', cleanUrl);
+      if (entry.name && entry.name !== 'Stream URL') next.searchParams.set('title', entry.name);
+      else next.searchParams.delete('title');
+      next.searchParams.set('autoplay', '1');
+      window.history.replaceState({}, '', next.toString());
+    } catch {}
+  }
+}
+
 
 function normalizeName(name) {
   return name || 'Flux sans titre';
@@ -342,218 +432,6 @@ function youtubeToEmbed(url) {
   } catch {
     return url;
   }
-}
-
-
-// =====================================================
-// AKAMAI-LIKE LOGIC (players.akamai.com style)
-// - Support: ?streamUrl=... (&title=...&autoplay=1&muted=1)
-// - Optional aliases: ?url=...
-// =====================================================
-function parseBoolParam(v, defaultValue = false) {
-  if (v === null || v === undefined || v === '') return defaultValue;
-  const s = String(v).trim().toLowerCase();
-  if (s === '1' || s === 'true' || s === 'yes' || s === 'on') return true;
-  if (s === '0' || s === 'false' || s === 'no' || s === 'off') return false;
-  return defaultValue;
-}
-
-function buildShareLinkForEntry(entry) {
-  try {
-    const u = new URL(window.location.href);
-    u.search = '';
-    const p = new URLSearchParams();
-    p.set('streamUrl', entry?.url || '');
-    if (entry?.name) p.set('title', entry.name);
-    p.set('autoplay', '1');
-    u.search = p.toString();
-    return u.toString();
-  } catch {
-    return '';
-  }
-}
-
-function copyToClipboard(text) {
-  if (!text) return Promise.reject(new Error('empty'));
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    return navigator.clipboard.writeText(text);
-  }
-  // Fallback (old browsers)
-  return new Promise((resolve, reject) => {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.left = '-9999px';
-      ta.style.top = '0';
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      const ok = document.execCommand('copy');
-      document.body.removeChild(ta);
-      ok ? resolve() : reject(new Error('copy-failed'));
-    } catch (e) { reject(e); }
-  });
-}
-
-
-
-// =====================================================
-// MINI METRICS (compact overlay)
-// - Toggle via ⓘ button (no extra layout space)
-// =====================================================
-let metricsTimer = null;
-let metricsOpen = false;
-
-function escapeHtml(str) {
-  const s = String(str ?? '');
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-
-function fmtTime(seconds) {
-  const s = Math.max(0, Number(seconds) || 0);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const sec = Math.floor(s % 60);
-  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-  return `${m}:${String(sec).padStart(2,'0')}`;
-}
-
-function bufferAheadSeconds() {
-  try {
-    if (!videoEl || !videoEl.buffered) return 0;
-    const t = videoEl.currentTime || 0;
-    for (let i = 0; i < videoEl.buffered.length; i++) {
-      const start = videoEl.buffered.start(i);
-      const end = videoEl.buffered.end(i);
-      if (t >= start && t <= end) return Math.max(0, end - t);
-    }
-  } catch {}
-  return 0;
-}
-
-function getVideoQualityInfo() {
-  try {
-    const q = videoEl?.getVideoPlaybackQuality?.();
-    if (q) return { dropped: q.droppedVideoFrames, total: q.totalVideoFrames };
-  } catch {}
-  // Safari/legacy
-  try {
-    if (typeof videoEl?.webkitDroppedFrameCount === 'number') {
-      return { dropped: videoEl.webkitDroppedFrameCount, total: videoEl.webkitDecodedFrameCount };
-    }
-  } catch {}
-  return null;
-}
-
-function setMetricsRows(rows) {
-  if (!metricsBody) return;
-  metricsBody.innerHTML = rows.map(r => (
-    `<div class="metrics-row"><div class="metrics-k">${r.k}</div><div class="metrics-v">${r.v}</div></div>`
-  )).join('');
-}
-
-function updateMetricsOnce() {
-  if (!metricsOpen || !metricsPanel || !metricsBody) return;
-
-  const rows = [];
-  const entryName = currentEntry?.name || '—';
-  const url = currentEntry?.url || '';
-
-  let mode = 'NATIVE';
-  if (hlsInstance) mode = 'HLS';
-  else if (dashInstance) mode = 'DASH';
-  else if (currentEntry?.isIframe || (url && isYoutubeUrl(url))) mode = 'IFRAME';
-
-  rows.push({ k: 'Mode', v: mode });
-  rows.push({ k: 'Titre', v: escapeHtml(entryName) });
-
-  if (mode === 'IFRAME') {
-    const src = iframeEl?.src || url || '—';
-    rows.push({ k: 'Source', v: escapeHtml(src) });
-    setMetricsRows(rows);
-    return;
-  }
-
-  // Time
-  const ct = Number(videoEl?.currentTime || 0);
-  const dur = Number.isFinite(videoEl?.duration) ? Number(videoEl.duration) : 0;
-  rows.push({ k: 'Temps', v: dur > 0 ? `${fmtTime(ct)} / ${fmtTime(dur)}` : fmtTime(ct) });
-
-  // Resolution
-  const w = Number(videoEl?.videoWidth || 0);
-  const h = Number(videoEl?.videoHeight || 0);
-  if (w && h) rows.push({ k: 'Rés', v: `${w}×${h}` });
-
-  // Buffer
-  const buf = bufferAheadSeconds();
-  rows.push({ k: 'Buffer', v: `${buf.toFixed(1)} s` });
-
-  // Frames
-  const qi = getVideoQualityInfo();
-  if (qi && typeof qi.dropped === 'number') {
-    const total = (typeof qi.total === 'number' && qi.total > 0) ? ` / ${qi.total}` : '';
-    rows.push({ k: 'Frames', v: `${qi.dropped} drop${total}` });
-  }
-
-  // HLS specifics
-  if (hlsInstance) {
-    try {
-      const bw = Number(hlsInstance.bandwidthEstimate || 0);
-      if (bw > 0) rows.push({ k: 'BW est.', v: `${Math.round(bw / 1000)} kbps` });
-    } catch {}
-    try {
-      const lvl = typeof hlsInstance.currentLevel === 'number' ? hlsInstance.currentLevel : -1;
-      const auto = !!hlsInstance.autoLevelEnabled;
-      if (lvl >= 0) rows.push({ k: 'Level', v: auto ? `${lvl} (auto)` : String(lvl) });
-    } catch {}
-  }
-
-  // DASH specifics (best-effort)
-  if (dashInstance) {
-    try {
-      const qv = dashInstance.getQualityFor?.('video');
-      if (typeof qv === 'number') rows.push({ k: 'Quality', v: String(qv) });
-    } catch {}
-    try {
-      const thr = dashInstance.getAverageThroughput?.('video');
-      if (typeof thr === 'number' && thr > 0) rows.push({ k: 'Throughput', v: `${Math.round(thr)} kbps` });
-    } catch {}
-  }
-
-  // URL (compact)
-  if (url) rows.push({ k: 'URL', v: escapeHtml(url) });
-
-  setMetricsRows(rows);
-}
-
-function openMetricsPanel() {
-  if (!metricsPanel) return;
-  metricsOpen = true;
-  metricsPanel.classList.add('is-open');
-  metricsPanel.setAttribute('aria-hidden', 'false');
-  updateMetricsOnce();
-  clearInterval(metricsTimer);
-  metricsTimer = setInterval(updateMetricsOnce, 1000);
-}
-
-function closeMetricsPanel() {
-  if (!metricsPanel) return;
-  metricsOpen = false;
-  metricsPanel.classList.remove('is-open');
-  metricsPanel.setAttribute('aria-hidden', 'true');
-  clearInterval(metricsTimer);
-  metricsTimer = null;
-}
-
-function toggleMetricsPanel() {
-  metricsOpen ? closeMetricsPanel() : openMetricsPanel();
 }
 
 // ✅ IMPORTANT : MovieContext basé sur l’entrée réellement en lecture (pas sur l’onglet)
@@ -2004,39 +1882,6 @@ fullPageBtn?.addEventListener('click', () => {
   else document.exitFullscreen?.();
 });
 
-
-// Partage (lien type players.akamai.com : ?streamUrl=...)
-shareLinkBtn?.addEventListener('click', async () => {
-  if (!currentEntry || !currentEntry.url) {
-    alert('Aucun flux en lecture à partager.');
-    return;
-  }
-
-  const link = buildShareLinkForEntry(currentEntry);
-  if (!link) {
-    alert('Impossible de générer le lien.');
-    return;
-  }
-
-  try {
-    await copyToClipboard(link);
-    setStatus('Lien copié ✅');
-  } catch {
-    // fallback UI
-    prompt('Copie ce lien :', link);
-    setStatus('Lien prêt');
-  }
-});
-
-
-// Mini metrics (ⓘ)
-metricsToggleBtn?.addEventListener('click', toggleMetricsPanel);
-metricsCloseBtn?.addEventListener('click', closeMetricsPanel);
-
-document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && metricsOpen) closeMetricsPanel();
-});
-
 // Next / Prev
 nextBtn?.addEventListener('click', playNext);
 prevBtn?.addEventListener('click', playPrev);
@@ -2052,6 +1897,50 @@ fxToggleBtn?.addEventListener('click', () => {
 pipToggleBtn?.addEventListener('click', () => {
   const active = playerContainer?.classList.toggle('pip-mode');
   pipToggleBtn.classList.toggle('btn-accent', !!active);
+});
+
+// Stream URL panel
+openStreamUrlBtn?.addEventListener('click', (ev) => {
+  ev.preventDefault();
+  ev.stopPropagation();
+  openStreamUrlPanel(true);
+});
+
+streamUrlCloseBtn?.addEventListener('click', (ev) => {
+  ev.preventDefault();
+  closeStreamUrlPanel();
+});
+
+streamUrlOverlay?.addEventListener('click', (ev) => {
+  if (ev.target === streamUrlOverlay) closeStreamUrlPanel();
+});
+
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && streamUrlOverlay && !streamUrlOverlay.classList.contains('hidden')) {
+    closeStreamUrlPanel();
+  }
+});
+
+streamUrlPlayBtn?.addEventListener('click', (ev) => {
+  ev.preventDefault();
+  const url = streamUrlInput?.value || '';
+  const title = streamTitleInput?.value || '';
+  closeStreamUrlPanel();
+  playDirectStream(url, title, { updateUrl: true });
+});
+
+streamUrlCopyBtn?.addEventListener('click', async (ev) => {
+  ev.preventDefault();
+  const url = normalizeStreamUrl(streamUrlInput?.value || getQueryParams().get('streamUrl') || '');
+  const title = (streamTitleInput?.value || getQueryParams().get('title') || '').trim();
+  if (!url) { setStatus('Rien à copier'); return; }
+  const link = buildStreamShareLink(url, title);
+  try {
+    await navigator.clipboard.writeText(link);
+    setStatus('Lien copié');
+  } catch {
+    try { window.prompt('Copie le lien :', link); } catch {}
+  }
 });
 
 // Thème
@@ -2193,73 +2082,6 @@ document.addEventListener('click', () => closeAllTrackMenus());
   updateNowPlaying(null, 'IDLE');
 })();
 
-
-// =====================================================
-// BOOT QUERY PARAMS (Akamai-style)
-// Exemple : index.html?streamUrl=https://.../master.m3u8&title=Ma%20chaine&autoplay=1&muted=1
-// =====================================================
-(function bootFromQueryParams() {
-  let params;
-  try { params = new URLSearchParams(window.location.search); } catch { return; }
-
-  const raw = (params.get('streamUrl') || params.get('url') || '').trim();
-  if (!raw) return;
-
-  // Indique au loader automatique de ne PAS écraser la lecture au démarrage
-  window.__tronBootOverride = true;
-
-  const title = (params.get('title') || params.get('name') || raw).trim();
-  const autoplay = parseBoolParam(params.get('autoplay'), true);
-  const muted = parseBoolParam(params.get('muted'), false);
-
-  // force iframe (optionnel)
-  const forceIframe =
-    parseBoolParam(params.get('iframe'), false) ||
-    parseBoolParam(params.get('overlay'), false);
-
-  // Pré-remplir l'input (pratique)
-  if (urlInput) urlInput.value = raw;
-
-  const entry = {
-    id: `qs-${nextUid()}`,
-    name: title,
-    url: raw,
-    logo: deriveLogoFromName(title),
-    group: 'Query',
-    isIframe: forceIframe || isYoutubeUrl(raw),
-    isFavorite: false,
-    listType: 'channels'
-  };
-
-  channels.push(entry);
-
-  // Active l'onglet "Film M3U" (channels) comme la page Akamai "hlsjs/dashjs"
-  try {
-    document.querySelectorAll('.tab-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.tab === 'channels');
-    });
-    document.querySelectorAll('.list').forEach(l => l.classList.remove('active'));
-    channelListEl?.classList.add('active');
-  } catch {}
-
-  currentListType = 'channels';
-  currentIndex = channels.length - 1;
-
-  renderLists();
-
-  if (videoEl && muted) {
-    try { videoEl.muted = true; } catch {}
-  }
-
-  if (autoplay) {
-    playChannel(currentIndex);
-    setStatus('Lecture via streamUrl');
-  } else {
-    updateNowPlaying(entry, 'READY');
-    setStatus('Flux prêt (autoplay=0)');
-  }
-})();
-
 // =====================================================
 // CHARGEMENT AUTOMATIQUE DES PLAYLISTS PRINCIPALES
 // =====================================================
@@ -2267,7 +2089,32 @@ document.addEventListener('click', () => closeAllTrackMenus());
   await loadFromUrl("https://vsalema.github.io/tvpt4/css/playlist_par_genre.m3u");
   await loadFrM3u("https://vsalema.github.io/tvpt4/css/playlist-tvf-r.m3u");
 
-  if (!window.__tronBootOverride && frChannels.length > 0) {
+  // ✅ Akamai-style: lecture directe via ?streamUrl=...
+  const qs = getQueryParams();
+  const directUrl = normalizeStreamUrl(qs.get('streamUrl'));
+  if (directUrl) {
+    const t = (qs.get('title') || '').trim();
+    const muted = (qs.get('muted') === '1');
+    const autoplayParam = qs.get('autoplay');
+    const shouldAutoplay = (autoplayParam === null) ? true : (autoplayParam !== '0');
+
+    if (muted && videoEl) {
+      try { videoEl.muted = true; } catch {}
+    }
+
+    playDirectStream(directUrl, t, { updateUrl: false });
+
+    if (!shouldAutoplay && videoEl) {
+      try { videoEl.pause(); } catch {}
+    }
+
+    renderLists();
+    updateNowPlaying(currentEntry, 'DIRECT');
+    return;
+  }
+
+
+  if (frChannels.length > 0) {
     currentListType = 'fr';
     currentFrIndex = 0;
 
