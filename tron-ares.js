@@ -2452,7 +2452,7 @@ document.addEventListener('click', () => closeAllTrackMenus());
     { title: "CMTV", logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/cmtv.png", url: "//popcdn.day/player.php?stream=CMTVPT" },
     { title: "TVI",  logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/TVI.png", url: "https://vsalema.github.io/tvi2/" },
     { title: "TVIR", logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/tvir.jpg", url: "https://vsalema.github.io/tvi-reality/" },
-    { title: "TVIF", logo: "https://pt.wikipedia.org/wiki/TVI_Fic%C3%A7%C3%A3o#/media/Ficheiro:TVI_Fic%C3%A7%C3%A3o_(2017).png", url: "https://vsalema.github.io/tvi-ficcao/" },
+    { title: "TVIF", logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/tvif.png", url: "https://vsalema.github.io/tvi-ficcao/" },
     { title: "TVIA", logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/tvia.png", url: "https://vsalema.github.io/tvi-africa/" },
     { title: "SIC",  logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/sic.jpg", url: "https://vsalema.github.io/sic/" },
     { title: "CNN",  logo: "https://vsalema.github.io/StreamPilot-X-Studio-S/logos/cnn.png", url: "https://vsalema.github.io/CNN/" },
