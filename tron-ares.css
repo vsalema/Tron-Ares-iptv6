@@ -1771,7 +1771,7 @@ body.theme-redblue .np-logo img {
 /* Mobile fix: sidebar au-dessus de l'overlay radio */
 @media (max-width: 900px) {
   .sidebar { z-index: 120; }
-  #radioOverlayLayer { z-index: 40 !important; }
+  #radioOverlayLayer { z-index: 80 !important; }
 }
 
 

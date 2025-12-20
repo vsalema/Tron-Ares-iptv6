@@ -533,94 +533,42 @@ function ensureRadioOverlayLayer() {
   layer.style.position = 'absolute';
   layer.style.inset = '0';
   layer.style.display = 'none';
-  layer.style.zIndex = '50';
+  layer.style.zIndex = '80';
   layer.style.pointerEvents = 'auto';
-  layer.style.background =
-    'radial-gradient(circle at 50% 35%, rgba(0,255,255,.12), rgba(0,0,0,.85) 60%)';
+  layer.style.background = 'rgba(0,0,0,.88)';
   layer.style.backdropFilter = 'blur(6px)';
 
   layer.innerHTML = `
-    <div style="height:100%; display:flex; align-items:center; justify-content:center; padding:18px;">
-      <div style="width:min(720px, 92vw); border:1px solid rgba(0,255,255,.25);
-                  border-radius:18px; padding:18px;
-                  box-shadow: 0 0 24px rgba(0,255,255,.12);
-                  background: linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,.35));
+    <div style="height:100%; width:100%; display:flex; flex-direction:column;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;
+                  padding:10px 12px; border-bottom:1px solid rgba(0,255,255,.18);
                   font-family: Orbitron, system-ui, sans-serif;">
-        <div style="display:flex; gap:14px; align-items:center;">
-          <img src="https://vsalema.github.io/ipodfm/img/Radio_Alfa.png"
-               alt="Radio"
-               style="width:64px; height:64px; border-radius:14px; object-fit:cover;
-                      box-shadow: 0 0 14px rgba(255,145,0,.18); border:1px solid rgba(255,145,0,.35);" />
-          <div style="flex:1;">
-            <div style="font-size:18px; letter-spacing:.8px; color:rgba(255,255,255,.95);">
-              Radio R.Alfa
-            </div>
-            <div style="margin-top:4px; font-size:12px; color:rgba(200,240,255,.75);">
-              <p style="color: #ff9100;">(Pop)</p> Mode Radio (dans le player)
-            </div>
-          </div>
-
-          <button id="radioOverlayBackBtn"
-                  style="border:1px solid rgba(0,255,255,.28);
-                         background: rgba(0,0,0,.25);
-                         color: rgba(230,255,255,.92);
-                         border-radius:12px;
-                         padding:10px 12px;
-                         cursor:pointer;">
-            ⤺ Retour diffusion
-          </button>
-        </div>
-
-        <div style="margin-top:16px; display:flex; align-items:center; justify-content:space-between; gap:12px;">
-          <div style="display:flex; gap:10px; align-items:center;">
-            <button id="radioOverlayPlayPauseBtn"
-                    style="border:1px solid rgba(255,145,0,.35);
-                           background: rgba(255,145,0,.12);
-                           color: rgba(255,255,255,.92);
-                           border-radius:14px;
-                           padding:12px 16px;
-                           cursor:pointer; font-weight:700;">
-              ⏸ Pause
-            </button>
-
-            <div style="display:flex; gap:6px; align-items:flex-end; height:28px;">
-              <span class="rovb" style="width:6px; height:10px; background:rgba(0,255,255,.7); border-radius:2px;"></span>
-              <span class="rovb" style="width:6px; height:18px; background:rgba(0,255,255,.7); border-radius:2px;"></span>
-              <span class="rovb" style="width:6px; height:14px; background:rgba(0,255,255,.7); border-radius:2px;"></span>
-              <span class="rovb" style="width:6px; height:22px; background:rgba(0,255,255,.7); border-radius:2px;"></span>
-            </div>
-          </div>
-
-          <div style="font-size:10px; color:rgba(255,255,255,.7);">
-            Radio Alfa est une station de radio s'adressant à la communauté lusophone en France.
+        <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+          <div style="width:10px; height:10px; border-radius:50%; background:rgba(0,255,255,.8);
+                      box-shadow:0 0 14px rgba(0,255,255,.45);"></div>
+          <div style="font-size:13px; letter-spacing:.08em; color:rgba(230,255,255,.92);
+                      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+            LUNA AUDIO PLAYER
           </div>
         </div>
+        <button id="lunaCloseBtn"
+                style="appearance:none; border:1px solid rgba(0,255,255,.28);
+                       background:rgba(0,0,0,.35); color:rgba(230,255,255,.92);
+                       border-radius:12px; padding:8px 10px; cursor:pointer;
+                       font-family: Orbitron, system-ui, sans-serif;">
+          ✕
+        </button>
+      </div>
+
+      <div style="flex:1 1 auto; min-height:0;">
+        <iframe id="lunaIframe"
+                title="Luna Player"
+                src="about:blank"
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                style="width:100%; height:100%; border:0; display:block;"></iframe>
       </div>
     </div>
   `;
-
-  let animTimer = null;
-  function startBars() {
-    stopBars();
-    animTimer = setInterval(() => {
-      const bars = layer.querySelectorAll('.rovb');
-      bars.forEach(b => {
-        const h = 8 + Math.floor(Math.random() * 22);
-        b.style.height = h + 'px';
-        b.style.opacity = (0.45 + Math.random() * 0.55).toFixed(2);
-      });
-    }, 140);
-  }
-  function stopBars() {
-    if (animTimer) clearInterval(animTimer);
-    animTimer = null;
-  }
-
-  layer.__startBars = startBars;
-  layer.__stopBars = stopBars;
-
-  const cs = window.getComputedStyle(host);
-  if (cs.position === 'static') host.style.position = 'relative';
 
   host.appendChild(layer);
   radioOverlayLayer = layer;
@@ -632,40 +580,40 @@ function showRadioOverlayInPlayer() {
   if (!layer) return;
 
   layer.style.display = 'block';
-  layer.__startBars?.();
 
-  const backBtn = layer.querySelector('#radioOverlayBackBtn');
-  const ppBtn = layer.querySelector('#radioOverlayPlayPauseBtn');
-
-  backBtn.onclick = () => stopRadioAndRestore();
-
-  ppBtn.onclick = () => {
-    if (!radioAudio) return;
-    if (radioAudio.paused) {
-      radioAudio.play().then(() => {
-        radioPlaying = true;
-        if (radioPlayBtn) radioPlayBtn.textContent = '⏸';
-        miniRadioEl?.classList.add('playing');
-        ppBtn.textContent = '⏸ Pause';
-        setStatus('Radio R.Alfa en lecture');
-        layer.__startBars?.();
-      }).catch(() => {});
-    } else {
-      radioAudio.pause();
-      radioPlaying = false;
-      if (radioPlayBtn) radioPlayBtn.textContent = '▶';
-      miniRadioEl?.classList.remove('playing');
-      ppBtn.textContent = '▶ Play';
-      setStatus('Radio en pause');
-      layer.__stopBars?.();
+  const iframe = layer.querySelector('#lunaIframe');
+  if (iframe) {
+    const url = (typeof window !== 'undefined' && window.LUNA_URL_OVERRIDE) ? window.LUNA_URL_OVERRIDE : 'https://vsalema.github.io/luna/';
+    if (!iframe.src || iframe.src === 'about:blank' || iframe.dataset.loaded !== '1') {
+      iframe.src = url;
+      iframe.dataset.loaded = '1';
     }
-  };
+  }
+
+  const closeBtn = layer.querySelector('#lunaCloseBtn');
+  if (closeBtn) {
+    closeBtn.onclick = () => {
+      stopRadioAndRestore();
+    };
+  }
+
+  setStatus('Luna');
 }
 
 function hideRadioOverlayInPlayer() {
-  if (!radioOverlayLayer) return;
-  radioOverlayLayer.__stopBars?.();
-  radioOverlayLayer.style.display = 'none';
+  const layer = ensureRadioOverlayLayer();
+  if (!layer) return;
+
+  // Stop audio inside the iframe by unloading it
+  try {
+    const iframe = layer.querySelector('#lunaIframe');
+    if (iframe) {
+      iframe.src = 'about:blank';
+      iframe.dataset.loaded = '0';
+    }
+  } catch {}
+
+  layer.style.display = 'none';
 }
 
 // Masquer les contrôles pistes au démarrage
@@ -905,26 +853,19 @@ if (miniRadioEl && radioPlayBtn) {
   radioPlayBtn.addEventListener('click', () => {
     if (!radioPlaying) {
       lastPlaybackSnapshot = snapshotCurrentPlayback();
+
+      // Stop current playback (video/iframe) and open the overlay
       stopPlaybackForRadio(lastPlaybackSnapshot);
 
-      radioAudio.play()
-        .then(() => {
-          radioPlaying = true;
-          radioPlayBtn.textContent = '⏸';
-          miniRadioEl.classList.add('playing');
-          setStatus('Radio R.Alfa en lecture');
-        })
-        .catch(err => {
-          console.error('Erreur lecture radio', err);
-          setStatus('Erreur radio');
-          stopRadioAndRestore();
-        });
+      // We reuse "radioPlaying" as "Luna overlay opened"
+      radioPlaying = true;
+      radioPlayBtn.textContent = '⏸';
+      miniRadioEl.classList.add('playing');
+      setStatus('Luna');
     } else {
       stopRadioAndRestore();
     }
   });
-
-  radioAudio.addEventListener('ended', () => stopRadioAndRestore());
 }
 
 // =====================================================
