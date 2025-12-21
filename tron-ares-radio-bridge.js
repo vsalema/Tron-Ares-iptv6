@@ -1,205 +1,160 @@
-/*! tron-ares-radio-bridge.js
-   Tron Ares ↔ Luna (iframe) : postMessage bridge ultra-robuste
+// ===============================================================
+// TRON-ARES ↔ LUNA RADIO BRIDGE (postMessage + contrôle bouton)
+// ===============================================================
 
-   - Handshake PING/READY
-   - File une commande par message, avec queue tant que Luna n'est pas prête
-   - Force "RADIO ALFA" uniquement au 1er chargement (localStorage)
-*/
-(() => {
-  "use strict";
+// URL de Luna (ton GitHub Pages)
+window.LUNA_URL_OVERRIDE = "https://vsalema.github.io/luna/";
 
-  const NS = "LUNA_BRIDGE";
+// Nom de la clé de stockage pour forcer Radio Alfa une seule fois
+const LUNA_FORCE_KEY = "luna_force_station_once_v1";
 
-  const DEFAULT_LUNA_URL = "https://vsalema.github.io/luna/";
-  const DEFAULT_STATION_NAME = "RADIO ALFA";
-  const LS_KEY_FORCED = "tronAresLunaForcedStationV1";
-
-  const state = {
-    ready: false,
-    lastReadyTs: 0,
-    lastEvent: "",
-    isPlaying: false,
-    stationName: "",
-    queue: [],
-    pingTimer: null,
-  };
-
-  function getLunaUrl(){
-    try{
-      if(typeof window !== "undefined" && window.LUNA_URL_OVERRIDE) return String(window.LUNA_URL_OVERRIDE);
-    }catch(_){}
-    return DEFAULT_LUNA_URL;
+// Helper: crée ou récupère l'iframe Luna
+function ensureLunaIframe() {
+  let iframe = document.querySelector("#lunaIframe");
+  if (!iframe) {
+    const layer = document.body; // tu peux adapter ici
+    iframe = document.createElement("iframe");
+    iframe.id = "lunaIframe";
+    iframe.allow = "autoplay";
+    iframe.style.cssText = `
+      position:fixed;
+      inset:0;
+      width:100%;
+      height:100%;
+      border:none;
+      z-index:9999;
+      background:#000;
+      display:none;
+    `;
+    layer.appendChild(iframe);
   }
 
-  function getIframe(){
-    return document.querySelector("#lunaIframe") || null;
-  }
+  // charge l'URL si vide
+  const url = window.LUNA_URL_OVERRIDE;
+  if (!iframe.src || iframe.src === "about:blank") iframe.src = url;
 
-  function ensureIframeLoaded(){
-    const iframe = getIframe();
-    if(!iframe) return null;
+  return iframe;
+}
 
-    const url = getLunaUrl();
-    if(!iframe.src || iframe.src === "about:blank" || iframe.dataset.loaded !== "1"){
-      iframe.src = url;
-      iframe.dataset.loaded = "1";
+// ===============================================================
+// BRIDGE OBJET GLOBAL
+// ===============================================================
+
+window.TronAresRadioBridge = {
+  iframe: null,
+  origin: null,
+  ready: false,
+  isPlaying: false,
+
+  init() {
+    this.iframe = ensureLunaIframe();
+    this.origin = new URL(window.LUNA_URL_OVERRIDE).origin;
+
+    window.addEventListener("message", (e) => this.onMessage(e));
+
+    // on ping Luna après un court délai
+    setTimeout(() => this.ping(), 1200);
+  },
+
+  onMessage(e) {
+    if (e.origin !== this.origin) return;
+    const data = e.data || {};
+
+    if (data.type === "LUNA_READY" || data.ready) {
+      console.log("✅ Luna READY");
+      this.ready = true;
+      this.autoForceStation();
     }
-    return iframe;
-  }
 
-  function postToLuna(cmd, payload){
-    const iframe = ensureIframeLoaded();
-    if(!iframe || !iframe.contentWindow) return false;
-
-    iframe.contentWindow.postMessage(
-      { __ns: NS, cmd, payload },
-      "*" // même origine (GitHub Pages). Simplifie les cas local/dev.
-    );
-    return true;
-  }
-
-  function flushQueue(){
-    if(!state.ready) return;
-    while(state.queue.length){
-      const m = state.queue.shift();
-      postToLuna(m.cmd, m.payload);
+    if (data.type === "LUNA_STATE") {
+      this.isPlaying = !!data.isPlaying;
     }
-  }
+  },
 
-  function send(cmd, payload){
-    // Always ensure iframe is loaded before sending
-    ensureIframeLoaded();
+  ping() {
+    this.send({ cmd: "PING" });
+  },
 
-    if(!state.ready){
-      state.queue.push({ cmd, payload });
-      // ping loop will deliver once READY
+  send(payload) {
+    if (!this.iframe || !this.iframe.contentWindow) {
+      console.warn("Bridge: iframe non prêt");
       return;
     }
-    postToLuna(cmd, payload);
-  }
+    this.iframe.contentWindow.postMessage(payload, this.origin);
+  },
 
-  function startPing(){
-    if(state.pingTimer) return;
-    state.pingTimer = window.setInterval(() => {
-      // If iframe not created yet, wait
-      const iframe = ensureIframeLoaded();
-      if(!iframe) return;
-      postToLuna("PING", {});
-    }, 500);
-  }
+  play() {
+    this.send({ cmd: "PLAY" });
+    this.isPlaying = true;
+  },
 
-  function stopPing(){
-    if(!state.pingTimer) return;
-    clearInterval(state.pingTimer);
-    state.pingTimer = null;
-  }
+  pause() {
+    this.send({ cmd: "PAUSE" });
+    this.isPlaying = false;
+  },
 
-  function setStationOnce(name = DEFAULT_STATION_NAME){
-    try{
-      const forced = localStorage.getItem(LS_KEY_FORCED);
-      if(forced === "1") return;
-      localStorage.setItem(LS_KEY_FORCED, "1");
-    }catch(_){}
-    send("SET_STATION", { stationName: name, autoplay: false });
-  }
+  toggle() {
+    if (this.isPlaying) this.pause();
+    else this.play();
+  },
 
-  function play(){
-    // Force station only once, then play
-    setStationOnce(DEFAULT_STATION_NAME);
-    send("PLAY", {});
-  }
+  open() {
+    const iframe = ensureLunaIframe();
+    iframe.style.display = "block";
+  },
 
-  function pause(){
-    send("PAUSE", {});
-  }
+  close() {
+    if (this.iframe) this.iframe.style.display = "none";
+  },
 
-  function toggle(){
-    setStationOnce(DEFAULT_STATION_NAME);
-    send("TOGGLE", {});
-  }
+  // Force Radio Alfa une seule fois par navigateur
+  autoForceStation() {
+    try {
+      if (localStorage.getItem(LUNA_FORCE_KEY) === "1") return;
 
-  function setStation(name, autoplay=false){
-    if(!name) return;
-    send("SET_STATION", { stationName: String(name), autoplay: !!autoplay });
-  }
-
-  function getState(){
-    send("GET_STATE", {});
-  }
-
-  // Receive events from Luna
-  window.addEventListener("message", (evt) => {
-    const data = evt && evt.data;
-    if(!data || data.__ns !== NS) return;
-
-    const ev = String(data.event || "").toUpperCase();
-    if(!ev) return;
-
-    state.lastEvent = ev;
-
-    if(ev === "READY"){
-      state.ready = true;
-      state.lastReadyTs = Date.now();
-      stopPing();
-      flushQueue();
-      return;
+      localStorage.setItem(LUNA_FORCE_KEY, "1");
+      this.send({
+        cmd: "SET_STATION",
+        station: "RADIO ALFA",
+        autoplay: true,
+      });
+      console.log("🎶 Radio Alfa forcée au premier chargement");
+    } catch (err) {
+      console.warn("Bridge: impossible de sauvegarder force-station", err);
     }
+  },
+};
 
-    if(ev === "PLAYING"){
-      state.isPlaying = true;
-      window.dispatchEvent(new CustomEvent("tron-ares:luna-playing", { detail: data }));
-      return;
-    }
+// ===============================================================
+// INITIALISATION AUTOMATIQUE
+// ===============================================================
 
-    if(ev === "PAUSED"){
-      state.isPlaying = false;
-      window.dispatchEvent(new CustomEvent("tron-ares:luna-paused", { detail: data }));
+document.addEventListener("DOMContentLoaded", () => {
+  const bridge = window.TronAresRadioBridge;
+  bridge.init();
+
+  const btn = document.getElementById("radioPlayBtn");
+  if (!btn) {
+    console.warn("Bridge: bouton #radioPlayBtn introuvable");
+    return;
+  }
+
+  // Attache le clic Play/Pause
+  btn.addEventListener("click", () => {
+    console.log("▶ Click sur mini-radio");
+
+    const b = window.TronAresRadioBridge;
+    if (!b.ready) {
+      console.warn("Bridge: Luna non prête, tentative d'ouverture...");
+      b.open();
+      // petit délai pour que Luna se charge avant de lancer play
+      setTimeout(() => b.play(), 1200);
       return;
     }
 
-    if(ev === "STATION_SET"){
-      state.stationName = String(data.name || "");
-      window.dispatchEvent(new CustomEvent("tron-ares:luna-station", { detail: data }));
-      return;
-    }
-
-    if(ev === "STATE"){
-      state.isPlaying = !!data.isPlaying;
-      state.stationName = String(data.name || "");
-      window.dispatchEvent(new CustomEvent("tron-ares:luna-state", { detail: data }));
-      return;
-    }
-
-    if(ev === "NEED_USER_GESTURE"){
-      window.dispatchEvent(new CustomEvent("tron-ares:luna-need-gesture", { detail: data }));
-      return;
-    }
-
-    if(ev === "ERROR"){
-      window.dispatchEvent(new CustomEvent("tron-ares:luna-error", { detail: data }));
-      return;
-    }
+    b.open(); // ouvre Luna (overlay)
+    b.toggle();
   });
+});
 
-  // Public API
-  window.TronAresRadioBridge = {
-    ensureIframeLoaded,
-    start: startPing,
-    play,
-    pause,
-    toggle,
-    setStation,
-    setStationOnce,
-    getState,
-    get ready(){ return state.ready; },
-    get isPlaying(){ return state.isPlaying; },
-    get stationName(){ return state.stationName; }
-  };
-
-  // Auto-start handshake
-  if(document.readyState === "loading"){
-    document.addEventListener("DOMContentLoaded", startPing, { once:true });
-  }else{
-    startPing();
-  }
-})();
+console.log("🎯 TronAresRadioBridge initialisé");
