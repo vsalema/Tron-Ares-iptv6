@@ -949,8 +949,7 @@ function stopRadioAndRestore(){
     else b.play();
   }); else {
       stopRadioAndRestore();
-    }
-  });
+}
 
   radioAudio.addEventListener('ended', () => stopRadioAndRestore());
 }
