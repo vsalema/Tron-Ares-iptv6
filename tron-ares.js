@@ -513,7 +513,8 @@ const radioAudio = new Audio(
 );
 radioAudio.preload = 'none';
 
-let radioPlaying = false;
+let radioPlaying = false; // true = overlay Luna ouvert
+let lunaIsPlaying = false; // état de lecture remonté par Luna
 let prevVideoMuted = false;
 let prevVideoVolume = 1;
 
@@ -521,6 +522,110 @@ let prevVideoVolume = 1;
 // RADIO OVERLAY LAYER (3e couche dans playerContainer)
 // =====================================================
 let radioOverlayLayer = null;
+// =====================================================
+// LUNA ↔ TRON : postMessage bridge (commande depuis #radioPlayBtn)
+// =====================================================
+let lunaReady = false;
+const lunaCmdQueue = [];
+
+function lunaGetIframeEl() {
+  const layer = ensureRadioOverlayLayer();
+  return layer ? layer.querySelector('#lunaIframe') : null;
+}
+
+function lunaGetTargetOrigin() {
+  const iframe = lunaGetIframeEl();
+  if (!iframe) return '*';
+  try {
+    const u = new URL(iframe.src, window.location.href);
+    return u.origin;
+  } catch {
+    return '*';
+  }
+}
+
+function lunaPost(cmd, payload = {}) {
+  const iframe = lunaGetIframeEl();
+  if (!iframe || !iframe.contentWindow) return;
+
+  const msg = {
+    __luna: 1,
+    from: 'tron-ares',
+    type: 'LUNA_CMD',
+    cmd,
+    payload
+  };
+
+  // si Luna n'a pas encore envoyé READY, on met en file
+  if (!lunaReady && cmd !== 'HELLO') {
+    lunaCmdQueue.push(msg);
+    return;
+  }
+
+  try {
+    iframe.contentWindow.postMessage(msg, lunaGetTargetOrigin());
+  } catch {
+    try { iframe.contentWindow.postMessage(msg, '*'); } catch {}
+  }
+}
+
+function lunaFlushQueue() {
+  if (!lunaCmdQueue.length) return;
+  const iframe = lunaGetIframeEl();
+  if (!iframe || !iframe.contentWindow) return;
+
+  const origin = lunaGetTargetOrigin();
+  while (lunaCmdQueue.length) {
+    const msg = lunaCmdQueue.shift();
+    try { iframe.contentWindow.postMessage(msg, origin); }
+    catch { try { iframe.contentWindow.postMessage(msg, '*'); } catch {} }
+  }
+}
+
+function lunaBindWindowMessageListenerOnce() {
+  if (window.__tronLunaPmBound) return;
+  window.__tronLunaPmBound = true;
+
+  window.addEventListener('message', (ev) => {
+    const iframe = lunaGetIframeEl();
+    if (!iframe || ev.source !== iframe.contentWindow) return;
+
+    const data = ev.data;
+    if (!data || data.__luna !== 1 || data.from !== 'luna') return;
+
+    if (data.type === 'LUNA_READY') {
+      lunaReady = true;
+      lunaFlushQueue();
+      // demande un état immédiat
+      lunaPost('GET_STATE');
+      return;
+    }
+
+    if (data.type === 'LUNA_STATE') {
+      lunaIsPlaying = !!data.playing;
+
+      // UI mini-radio = état lecture réel
+      miniRadioEl?.classList.toggle('playing', lunaIsPlaying);
+      if (radioPlayBtn) radioPlayBtn.textContent = lunaIsPlaying ? '⏸' : '▶';
+
+      // status optionnel
+      if (data.station && data.station.name) setStatus(`Luna • ${data.station.name}`);
+      return;
+    }
+
+    if (data.type === 'LUNA_AUTOPLAY_BLOCKED') {
+      setStatus('Luna • autoplay bloqué (clique dans le lecteur)');
+      // On montre "▶" pour inciter à relancer
+      if (radioPlayBtn) radioPlayBtn.textContent = '▶';
+      miniRadioEl?.classList.remove('playing');
+      lunaIsPlaying = false;
+      return;
+    }
+  });
+}
+
+lunaBindWindowMessageListenerOnce();
+
 
 function ensureRadioOverlayLayer() {
   if (radioOverlayLayer) return radioOverlayLayer;
@@ -583,11 +688,26 @@ function showRadioOverlayInPlayer() {
 
   const iframe = layer.querySelector('#lunaIframe');
   if (iframe) {
-    const url = (typeof window !== 'undefined' && window.LUNA_URL_OVERRIDE) ? window.LUNA_URL_OVERRIDE : 'https://vsalema.github.io/luna/';
+    const url =
+      (radioPlayBtn && radioPlayBtn.dataset && radioPlayBtn.dataset.lunaUrl) ? radioPlayBtn.dataset.lunaUrl :
+      (playerContainer && playerContainer.dataset && playerContainer.dataset.lunaUrl) ? playerContainer.dataset.lunaUrl :
+      ((typeof window !== 'undefined' && window.LUNA_URL_OVERRIDE) ? window.LUNA_URL_OVERRIDE : 'index.luna.html');
     if (!iframe.src || iframe.src === 'about:blank' || iframe.dataset.loaded !== '1') {
       iframe.src = url;
       iframe.dataset.loaded = '1';
     }
+// postMessage: on réinitialise READY quand on (re)charge Luna, puis handshake
+if (!iframe.dataset.pmBound) {
+  iframe.dataset.pmBound = '1';
+  iframe.addEventListener('load', () => {
+    lunaReady = false;
+    lunaPost('HELLO'); // Luna répond READY + STATE
+  });
+} else {
+  // si déjà bound, on tente un HELLO immédiat
+  lunaPost('HELLO');
+}
+
   }
 
   const closeBtn = layer.querySelector('#lunaCloseBtn');
@@ -842,31 +962,75 @@ function restorePlaybackAfterRadio() {
 }
 
 function stopRadioAndRestore() {
+  // stop Luna (si présent)
+  try { lunaPost('PAUSE'); } catch {}
   try { radioAudio?.pause(); } catch {}
+
+  lunaIsPlaying = false;
+  lunaReady = false;
+
   radioPlaying = false;
   if (radioPlayBtn) radioPlayBtn.textContent = '▶';
   miniRadioEl?.classList.remove('playing');
+
   restorePlaybackAfterRadio();
 }
+// Stop Luna sans restaurer l'ancien flux (utilisé quand on relance une chaîne/film)
+function stopLunaOverlayHard() {
+  try { lunaPost('PAUSE'); } catch {}
+  try { radioAudio?.pause(); } catch {}
+
+  lunaIsPlaying = false;
+  lunaReady = false;
+
+  radioPlaying = false;
+  if (radioPlayBtn) radioPlayBtn.textContent = '▶';
+  miniRadioEl?.classList.remove('playing');
+
+  // Ferme l'overlay (sans appeler restorePlaybackAfterRadio)
+  hideRadioOverlayInPlayer();
+  lastPlaybackSnapshot = null;
+
+  try {
+    if (videoEl) {
+      videoEl.muted = prevVideoMuted;
+      videoEl.volume = prevVideoVolume;
+    }
+  } catch {}
+}
+
+
 
 if (miniRadioEl && radioPlayBtn) {
   radioPlayBtn.addEventListener('click', () => {
+    // 1er clic : ouvre Luna en overlay + lance la 1ère station (RADIO ALFA)
     if (!radioPlaying) {
       lastPlaybackSnapshot = snapshotCurrentPlayback();
 
-      // Stop current playback (video/iframe) and open the overlay
+      // Stoppe la lecture actuelle (video/iframe) et ouvre l'overlay Luna
       stopPlaybackForRadio(lastPlaybackSnapshot);
 
-      // We reuse "radioPlaying" as "Luna overlay opened"
-      radioPlaying = true;
-      radioPlayBtn.textContent = '⏸';
+      radioPlaying = true; // overlay ouvert
+
+      // Commande Luna: station 0 (RADIO ALFA) + play
+      lunaPost('PLAY_STATION', {
+        stationIndex: 0,
+        stationKey: 'RADIO_ALFA',
+        stationName: 'RADIO ALFA'
+      });
+
+      // UI optimiste (Luna renverra LUNA_STATE)
       miniRadioEl.classList.add('playing');
-      setStatus('Luna');
-    } else {
-      stopRadioAndRestore();
+      if (radioPlayBtn) radioPlayBtn.textContent = '⏸';
+      setStatus('Luna • RADIO ALFA');
+      return;
     }
+
+    // overlay déjà ouvert => toggle play/pause dans Luna
+    lunaPost('TOGGLE_PLAY');
   });
 }
+
 
 // =====================================================
 // RENDERING
@@ -1482,17 +1646,9 @@ function playUrl(entry) {
     clearFilmPreviewTimer();
   }
 
-  // stop radio si elle joue
-  if (typeof radioAudio !== 'undefined' && radioPlaying) {
-    try { radioAudio.pause(); } catch {}
-    radioPlaying = false;
-    if (radioPlayBtn) radioPlayBtn.textContent = '▶';
-    miniRadioEl?.classList.remove('playing');
-    hideRadioOverlayInPlayer();
-    try {
-      videoEl.muted = prevVideoMuted;
-      videoEl.volume = prevVideoVolume;
-    } catch {}
+  // stop Luna si l'overlay est ouvert
+  if (radioPlaying) {
+    stopLunaOverlayHard();
   }
 
   currentEntry = entry;
