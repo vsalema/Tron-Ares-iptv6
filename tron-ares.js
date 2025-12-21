@@ -522,99 +522,188 @@ let prevVideoVolume = 1;
 // =====================================================
 let radioOverlayLayer = null;
 
-function ensureRadioOverlayLayer() {
-  if (radioOverlayLayer) return radioOverlayLayer;
-  if (!playerContainer) return null;
+function ensureRadioOverlayLayer(){
+  if(radioOverlayLayer) return radioOverlayLayer;
+  if(!playerContainer) return null;
 
-  const host = playerContainer.querySelector('.player-inner') || playerContainer;
+  const inner = playerContainer.querySelector(".player-inner") || playerContainer;
 
-  const layer = document.createElement('div');
-  layer.id = 'radioOverlayLayer';
-  layer.style.position = 'absolute';
-  layer.style.inset = '0';
-  layer.style.display = 'none';
-  layer.style.zIndex = '80';
-  layer.style.pointerEvents = 'auto';
-  layer.style.background = 'rgba(0,0,0,.88)';
-  layer.style.backdropFilter = 'blur(6px)';
+  // Inject styles once
+  if(!document.getElementById("tronAresRadioOverlayStyle")){
+    const st = document.createElement("style");
+    st.id = "tronAresRadioOverlayStyle";
+    st.textContent = `
+      .radio-overlay-layer{
+        position:absolute;
+        inset:0;
+        z-index:50;
+        display:none;
+      }
+      .radio-overlay-layer.show{ display:block; }
+      .radio-overlay-shell{
+        position:absolute;
+        inset:0;
+        display:flex;
+        flex-direction:column;
+        background: rgba(0,0,0,0.68);
+        backdrop-filter: blur(10px);
+      }
+      .radio-overlay-top{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        padding:12px 14px;
+        border-bottom:1px solid rgba(255,255,255,0.12);
+      }
+      .radio-overlay-title{
+        font-weight:600;
+        letter-spacing: .2px;
+        opacity:.92;
+      }
+      .radio-overlay-actions{
+        display:flex;
+        gap:10px;
+        align-items:center;
+      }
+      .radio-overlay-btn{
+        width:40px;height:40px;
+        border-radius:12px;
+        border:1px solid rgba(255,255,255,0.14);
+        background: rgba(255,255,255,0.06);
+        color:#fff;
+        display:grid;
+        place-items:center;
+        cursor:pointer;
+        user-select:none;
+      }
+      .radio-overlay-btn:hover{ background: rgba(255,255,255,0.10); border-color: rgba(255,255,255,0.22); }
+      .radio-overlay-frameWrap{
+        position:relative;
+        flex:1 1 auto;
+        min-height:0;
+      }
+      #lunaIframe{
+        position:absolute;
+        inset:0;
+        width:100%;
+        height:100%;
+        border:0;
+        background: #000;
+      }
+      .luna-gesture-hint{
+        position:absolute;
+        left:50%;
+        bottom:18px;
+        transform:translateX(-50%);
+        padding:10px 12px;
+        border-radius:14px;
+        border:1px solid rgba(255,255,255,0.14);
+        background: rgba(0,0,0,0.45);
+        color: rgba(255,255,255,0.92);
+        font-size:12px;
+        pointer-events:none;
+      }
+    `;
+    document.head.appendChild(st);
+  }
 
+  const layer = document.createElement("div");
+  layer.className = "radio-overlay-layer";
+  layer.setAttribute("aria-hidden","true");
   layer.innerHTML = `
-    <div style="height:100%; width:100%; display:flex; flex-direction:column;">
-      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;
-                  padding:10px 12px; border-bottom:1px solid rgba(0,255,255,.18);
-                  font-family: Orbitron, system-ui, sans-serif;">
-        <div style="display:flex; align-items:center; gap:10px; min-width:0;">
-          <div style="width:10px; height:10px; border-radius:50%; background:rgba(0,255,255,.8);
-                      box-shadow:0 0 14px rgba(0,255,255,.45);"></div>
-          <div style="font-size:13px; letter-spacing:.08em; color:rgba(230,255,255,.92);
-                      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
-            LUNA AUDIO PLAYER
-          </div>
+    <div class="radio-overlay-shell">
+      <div class="radio-overlay-top">
+        <div class="radio-overlay-title">Luna Radio</div>
+        <div class="radio-overlay-actions">
+          <button type="button" class="radio-overlay-btn" id="radioOverlayPlayBtn" aria-label="Play/Pause">▶</button>
+          <button type="button" class="radio-overlay-btn" id="radioOverlayCloseBtn" aria-label="Fermer">✕</button>
         </div>
-        <button id="lunaCloseBtn"
-                style="appearance:none; border:1px solid rgba(0,255,255,.28);
-                       background:rgba(0,0,0,.35); color:rgba(230,255,255,.92);
-                       border-radius:12px; padding:8px 10px; cursor:pointer;
-                       font-family: Orbitron, system-ui, sans-serif;">
-          ✕
-        </button>
       </div>
 
-      <div style="flex:1 1 auto; min-height:0;">
-        <iframe id="lunaIframe"
-                title="Luna Player"
-                src="about:blank"
-                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-                style="width:100%; height:100%; border:0; display:block;"></iframe>
+      <div class="radio-overlay-frameWrap">
+        <iframe id="lunaIframe" title="Luna Radio Player" allow="autoplay; fullscreen"></iframe>
+        <div class="luna-gesture-hint" id="lunaGestureHint" hidden>Si l’audio ne démarre pas: clique une fois dans Luna</div>
       </div>
     </div>
   `;
 
-  host.appendChild(layer);
+  inner.appendChild(layer);
   radioOverlayLayer = layer;
-  return layer;
-}
 
-function showRadioOverlayInPlayer() {
-  const layer = ensureRadioOverlayLayer();
-  if (!layer) return;
+  // No-op placeholders (ancien code)
+  radioOverlayLayer.__stopBars = () => {};
+  radioOverlayLayer.__startBars = () => {};
 
-  layer.style.display = 'block';
+  const closeBtn = layer.querySelector("#radioOverlayCloseBtn");
+  const playBtn  = layer.querySelector("#radioOverlayPlayBtn");
+  const hint     = layer.querySelector("#lunaGestureHint");
 
-  const iframe = layer.querySelector('#lunaIframe');
-  if (iframe) {
-    const url = (typeof window !== 'undefined' && window.LUNA_URL_OVERRIDE) ? window.LUNA_URL_OVERRIDE : 'https://vsalema.github.io/luna/';
-    if (!iframe.src || iframe.src === 'about:blank' || iframe.dataset.loaded !== '1') {
-      iframe.src = url;
-      iframe.dataset.loaded = '1';
-    }
+  function setPlayingUI(playing){
+    if(playBtn) playBtn.textContent = playing ? "❚❚" : "▶";
+    if(radioPlayBtn) radioPlayBtn.textContent = playing ? "❚❚" : "▶";
+    if(radioPlayBtn) radioPlayBtn.classList.toggle("playing", !!playing);
+    try{ radioPlaying = !!playing; }catch(_){ }
+    if(hint) hint.hidden = true;
   }
 
-  const closeBtn = layer.querySelector('#lunaCloseBtn');
-  if (closeBtn) {
-    closeBtn.onclick = () => {
-      stopRadioAndRestore();
-    };
-  }
+  // Button actions
+  if(closeBtn) closeBtn.addEventListener("click", () => stopRadioAndRestore());
 
-  setStatus('Luna');
+  if(playBtn) playBtn.addEventListener("click", () => {
+    const b = window.TronAresRadioBridge;
+    if(!b) return;
+    if(b.isPlaying) b.pause();
+    else b.play();
+  });
+
+  // Bridge events -> UI
+  window.addEventListener("tron-ares:luna-playing", () => setPlayingUI(true));
+  window.addEventListener("tron-ares:luna-paused",  () => setPlayingUI(false));
+  window.addEventListener("tron-ares:luna-need-gesture", () => { if(hint) hint.hidden = false; });
+
+  // Make sure iframe is prepared as soon as overlay exists
+  const b = window.TronAresRadioBridge;
+  if(b && b.ensureIframeLoaded) b.ensureIframeLoaded();
+
+  return radioOverlayLayer;
 }
 
-function hideRadioOverlayInPlayer() {
+
+function showRadioOverlayInPlayer(){
   const layer = ensureRadioOverlayLayer();
-  if (!layer) return;
+  if(!layer) return;
 
-  // Stop audio inside the iframe by unloading it
-  try {
-    const iframe = layer.querySelector('#lunaIframe');
-    if (iframe) {
-      iframe.src = 'about:blank';
-      iframe.dataset.loaded = '0';
-    }
-  } catch {}
+  // Pause ce qui joue déjà dans le player vidéo (fonction existante)
+  if(typeof pauseMainPlaybackForRadio === "function") pauseMainPlaybackForRadio();
 
-  layer.style.display = 'none';
+  layer.classList.add("show");
+  layer.setAttribute("aria-hidden","false");
+
+  // Focus iframe for better autoplay odds
+  try{
+    const iframe = document.querySelector("#lunaIframe");
+    if(iframe) iframe.focus();
+  }catch(_){}
+
+  // Start handshake and keep iframe loaded
+  const b = window.TronAresRadioBridge;
+  if(b){
+    if(b.ensureIframeLoaded) b.ensureIframeLoaded();
+    if(b.start) b.start();
+  }
 }
+
+
+function hideRadioOverlayInPlayer(){
+  if(!radioOverlayLayer) return;
+  radioOverlayLayer.__stopBars?.();
+  radioOverlayLayer.classList.remove("show");
+  radioOverlayLayer.setAttribute("aria-hidden","true");
+  // remove inline display override if old code set it
+  radioOverlayLayer.style.display = "";
+}
+
 
 // Masquer les contrôles pistes au démarrage
 npTracks?.classList.add('hidden');
@@ -841,31 +930,29 @@ function restorePlaybackAfterRadio() {
   }
 }
 
-function stopRadioAndRestore() {
-  try { radioAudio?.pause(); } catch {}
-  radioPlaying = false;
-  if (radioPlayBtn) radioPlayBtn.textContent = '▶';
-  miniRadioEl?.classList.remove('playing');
-  restorePlaybackAfterRadio();
-}
+function stopRadioAndRestore(){
+  // On ne détruit pas Luna: on met juste pause et on cache l’overlay
+  const b = window.TronAresRadioBridge;
+  if(b && b.pause) b.pause();
 
-if (miniRadioEl && radioPlayBtn) {
-  radioPlayBtn.addEventListener('click', () => {
-    if (!radioPlaying) {
-      lastPlaybackSnapshot = snapshotCurrentPlayback();
+  hideRadioOverlayInPlayer();
 
-      // Stop current playback (video/iframe) and open the overlay
-      stopPlaybackForRadio(lastPlaybackSnapshot);
+  // Restore le player vidéo (fonction existante)
+  if(typeof restorePlaybackAfterRadio === "function") restorePlaybackAfterRaradioPlayBtn.addEventListener('click', () => {
+    // Ouvre Luna dans l’overlay player, puis Play/Pause via postMessage
+    showRadioOverlayInPlayer();
 
-      // We reuse "radioPlaying" as "Luna overlay opened"
-      radioPlaying = true;
-      radioPlayBtn.textContent = '⏸';
-      miniRadioEl.classList.add('playing');
-      setStatus('Luna');
-    } else {
+    const b = window.TronAresRadioBridge;
+    if(!b) return;
+
+    if(b.isPlaying) b.pause();
+    else b.play();
+  }); else {
       stopRadioAndRestore();
     }
   });
+
+  radioAudio.addEventListener('ended', () => stopRadioAndRestore());
 }
 
 // =====================================================
@@ -2096,7 +2183,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     // (radioOverlayBackBtn) : stop radio + restore playback.
     // Important : on évite l'autoplay automatique sur ce clic, sinon on écrase
     // le flux restauré par la 1ère chaîne de l'onglet.
-    const radioOverlayOpen = !!radioOverlayLayer && radioOverlayLayer.style.display !== 'none';
+    const radioOverlayOpen = !!radioOverlayLayer && radioOverlayLayer.classList.contains('show');
     const skipAutoplay = (radioOverlayOpen || radioPlaying);
     if (skipAutoplay) {
       stopRadioAndRestore();
