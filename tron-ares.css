@@ -514,7 +514,7 @@ body {
 }
 
 .banner-img {
-  height: 78px;
+  height: 38px;
   width: auto;
   filter: drop-shadow(0 0 10px var(--tron-border));
   opacity: 0.9;
