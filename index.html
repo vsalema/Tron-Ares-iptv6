@@ -46,10 +46,8 @@
              placeholder="Rechercher (toutes listes)…" />
       <button id="clearSearchBtn" class="clear-search-btn">✖</button>
     </div>
-
-    <button class="btn btn-ghost film-access-btn" id="filmAccessBtn" title="Accès Films">🔒 Films</button>
-  </div>
-</div>
+    </div>
+    </div>
 <!-- Mini player radio R.Alfa -->
 <div id="miniRadioPlayer" class="mini-radio">
   <img class="mini-radio-logo" src="https://vsalema.github.io/ipodfm/img/Radio_Alfa.png">
@@ -227,6 +225,15 @@
   <div class="np-badge" id="npBadge">IDLE</div>
   <div class="np-counter" id="npCounter">-/-</div>
 
+  <!-- Actions (Cast, etc.) -->
+  <div class="np-actions" id="npActions">
+    <google-cast-launcher
+      id="castLauncher"
+      class="icon-btn np-action-btn cast-launcher cast-btn"
+      title="Chromecast"
+      aria-label="Chromecast"></google-cast-launcher>
+  </div>
+
   <!-- Nouveau bloc contrôles films (channelList) -->
   <div class="np-tracks" id="npTracks">
 
@@ -287,29 +294,11 @@
   </div>
 </div>
 
-<!-- 🔒 Modal restriction Films (PIN) -->
-<div id="movieLockBackdrop" class="tron-lock-backdrop hidden" aria-hidden="true">
-  <div class="tron-lock-modal" role="dialog" aria-modal="true" aria-label="Restriction Films">
-    <div class="tron-lock-title">🔒 Accès Films</div>
-    <div class="tron-lock-sub" id="movieLockHint">Aucun PIN n’est défini. Cliquez sur « Définir / changer PIN » pour activer la restriction.</div>
-
-    <input class="tron-lock-input" id="movieLockPinInput" type="password" inputmode="numeric"
-           placeholder="PIN (4 chiffres ou plus)" autocomplete="current-password" />
-
-    <div class="tron-lock-actions">
-      <button class="btn btn-accent" id="movieLockUnlockBtn">Déverrouiller</button>
-      <button class="btn btn-ghost" id="movieLockSetPinBtn">Définir / changer PIN</button>
-      <button class="btn btn-ghost" id="movieLockLockBtn">Verrouiller</button>
-      <button class="btn btn-ghost" id="movieLockCancelBtn">Annuler</button>
-    </div>
-
-    <div class="tron-lock-foot">
-      Déverrouillage temporaire (session). Fermer l’onglet/verrouiller réactive la restriction.
-    </div>
-  </div>
-</div>
-
 
 <script src="tron-ares.js"></script>
+
+<script
+  type="text/javascript"
+  src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 </body>
 </html>
