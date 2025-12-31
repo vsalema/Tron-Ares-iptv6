@@ -266,8 +266,8 @@ body {
 }
 
 .channel-logo {
-  width: 60px;
-  height: 33px;
+  width: 87px;
+  height: 55px;
   border-radius: 999px;
   background: radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.25), rgba(0, 0, 0, 0.9));
   display: flex;
