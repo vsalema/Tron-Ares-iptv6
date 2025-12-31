@@ -364,7 +364,7 @@ body {
 
 .channel-sub {
   font-size: 11px;
-  color: var(--tron-muted);
+  color: #00e5ff;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

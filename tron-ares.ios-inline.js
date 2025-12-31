@@ -1085,21 +1085,6 @@ function createChannelElement(entry, index, sourceType) {
   titleDiv.className = 'channel-title';
   titleDiv.textContent = normalizeName(entry.name);
 
-  // --- Voyant lien (vert/rouge/?) à côté du titre ---
-  // Par défaut: neutre (pas encore vérifié)
-  const linkDot = document.createElement('span');
-  linkDot.className = 'link-dot';
-  const st0 = entry?.linkCheck?.state || '';
-  if (st0 === 'ok') linkDot.classList.add('link-dot--ok');
-  else if (st0 === 'fail') linkDot.classList.add('link-dot--bad');
-  else if (st0 === 'pending') linkDot.classList.add('link-dot--pending');
-  else if (st0 === 'unknown') linkDot.classList.add('link-dot--unknown');
-  // Tooltip
-  try {
-    const detail = entry?.linkCheck?.detail ? String(entry.linkCheck.detail) : '';
-    linkDot.title = detail || 'État du lien (cliquer sur Vérifier)';
-  } catch {}
-
   // Numéro de chaîne (affichage)
   const numDiv = document.createElement('div');
   numDiv.className = 'channel-num';
@@ -1108,9 +1093,26 @@ function createChannelElement(entry, index, sourceType) {
   const titleRow = document.createElement('div');
   titleRow.className = 'channel-title-row';
   titleRow.appendChild(numDiv);
-  titleRow.appendChild(titleDiv);
-  titleRow.appendChild(linkDot);
 
+  // --- Voyant état du lien (gris -> orange -> vert/rouge) ---
+  const dot = document.createElement('span');
+  dot.className = 'link-dot';
+
+  const stDot = entry.linkCheck?.state;
+  dot.classList.add(
+    stDot === 'ok' ? 'link-dot--ok' :
+    stDot === 'fail' ? 'link-dot--bad' :
+    stDot === 'pending' ? 'link-dot--pending' :
+    stDot === 'unknown' ? 'link-dot--unknown' :
+    'link-dot--idle'
+  );
+
+  const dDetail = entry.linkCheck?.detail ? String(entry.linkCheck.detail) : '';
+  const dMs = Number.isFinite(entry.linkCheck?.ms) ? ` • ${Math.round(entry.linkCheck.ms)}ms` : '';
+  dot.title = dDetail ? (dDetail + dMs) : 'Lien non vérifié';
+
+  titleRow.appendChild(dot);
+  titleRow.appendChild(titleDiv);
   const subDiv = document.createElement('div');
   subDiv.className = 'channel-sub';
   subDiv.textContent = entry.group || (entry.isIframe ? 'Overlay / iFrame' : 'Flux M3U');
@@ -2689,6 +2691,9 @@ async function verifyAllLinks() {
   const entries = _allEntriesForVerify();
   if (!entries.length) {
     setStatus('Aucune entrée à vérifier');
+    alert('Aucune entrée à vérifier.
+
+Charge une playlist ou ajoute des items, puis relance Vérifier.');
     return;
   }
 
