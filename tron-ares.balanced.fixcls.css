@@ -266,8 +266,8 @@ body {
 }
 
 .channel-logo {
-  width: 87px;
-  height: 55px;
+  width: 60px;
+  height: 33px;
   border-radius: 999px;
   background: radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.25), rgba(0, 0, 0, 0.9));
   display: flex;
@@ -316,40 +316,6 @@ body {
   min-width: 0;
 }
 
-/* Voyant lien (vert/rouge/?) affiché à côté des titres */
-.link-dot{
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  flex: 0 0 auto;
-  border: 1px solid rgba(0, 229, 255, 0.22);
-  background: rgba(127, 159, 179, 0.18);
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.25) inset;
-}
-
-.link-dot--pending{
-  border-color: rgba(255, 145, 0, 0.65);
-  background: rgba(255, 145, 0, 0.22);
-  box-shadow: 0 0 10px rgba(255, 145, 0, 0.18);
-}
-
-.link-dot--ok{
-  border-color: rgba(0, 229, 255, 0.75);
-  background: rgba(0, 229, 255, 0.26);
-  box-shadow: 0 0 12px rgba(0, 229, 255, 0.18);
-}
-
-.link-dot--bad{
-  border-color: rgba(255, 68, 0, 0.85);
-  background: rgba(255, 68, 0, 0.25);
-  box-shadow: 0 0 12px rgba(255, 68, 0, 0.16);
-}
-
-.link-dot--unknown{
-  border-color: rgba(127, 159, 179, 0.55);
-  background: rgba(127, 159, 179, 0.16);
-}
-
 .channel-num {
   flex: 0 0 auto;
   font-size: 10px;
@@ -362,9 +328,10 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+
 .channel-sub {
   font-size: 11px;
-  color: #00e5ff;
+  color: var(--tron-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -392,26 +359,6 @@ body {
   color: var(--tron-accent-soft);
 }
 
-
-.tag-chip--pending{
-  border-color: rgba(255, 145, 0, 0.65);
-  color: var(--tron-accent-soft);
-}
-
-.tag-chip--ok{
-  border-color: rgba(0, 229, 255, 0.65);
-  color: rgba(0, 229, 255, 0.95);
-}
-
-.tag-chip--bad{
-  border-color: rgba(255, 68, 0, 0.75);
-  color: rgba(255, 120, 80, 0.95);
-}
-
-.tag-chip--unknown{
-  border-color: rgba(127, 159, 179, 0.55);
-  color: var(--tron-muted);
-}
 .channel-actions {
   display: flex;
   align-items: center;
@@ -571,10 +518,8 @@ body {
   width: auto;
   filter: drop-shadow(0 0 10px var(--tron-border));
   opacity: 0.9;
-  transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+  transition: 0.25s ease-out;
   animation: tronBannerPulse 4s infinite alternate ease-in-out;
-  aspect-ratio: 1399 / 471;
-  display: block;
 }
 
 @keyframes tronBannerPulse {
@@ -1974,84 +1919,3 @@ body.theme-redblue .np-logo img {
   font-size: 11px;
 }
 
-
-
-/* =====================================================
-   LITE PERFORMANCE OVERRIDES (test INP / paint)
-   Objectif: réduire blur, filters, gros shadows, animations
-   ===================================================== */
-
-:root{
-  --shadow-neon: 0 0 6px rgba(0, 229, 255, 0.25);
-  --shadow-neon-amber: 0 0 6px rgba(255, 145, 0, 0.25);
-}
-
-:root{
-  /* Glows légers (peu coûteux) */
-  --shadow-neon: 0 0 8px rgba(0, 229, 255, 0.30);
-  --shadow-neon-amber: 0 0 8px rgba(255, 145, 0, 0.28);
-}
-
-/* Empêche un micro-shift quand l’UI change (scrollbar stable) */
-html{ scrollbar-gutter: stable; }
-
-/* Stabilise le LCP vidéo (évite des micro-ajustements au chargement) */
-#videoEl{
-  display:block;
-  width:100%;
-  height:auto;
-  aspect-ratio: 16 / 9;
-}
-
-/* 1) BLUR : OFF sur grandes surfaces (garde l’INP bas) */
-#radioOverlayLayer{ backdrop-filter: none !important; }
-.radio-panel{ backdrop-filter: none !important; }
-.streamurl-overlay{ backdrop-filter: none !important; }
-
-/* 2) Filters coûteux : OFF (drop-shadow / blur / etc.) */
-.banner-img,
-.channel-logo img,
-.np-logo img{
-  filter: none !important;
-}
-
-/* 3) Tabs : transitions ciblées (OK), + glow léger sur active */
-.tab-btn{
-  transition: transform 140ms ease, opacity 140ms ease, border-color 140ms ease, background-color 140ms ease !important;
-  will-change: transform;
-}
-.tab-btn.active{
-  background: rgba(0,0,0,.65) !important;
-  box-shadow: var(--shadow-neon) !important;
-  transform: translateZ(0) scale(1.01);
-}
-
-/* 4) Hover glows (légers) — pas de filters */
-.channel-item:hover,
-.channel-item.active,
-.icon-btn:hover,
-.toggle-sidebar-btn:hover,
-.nav-btn:hover,
-.btn:hover,
-.mini-radio-btn:hover{
-  box-shadow: var(--shadow-neon) !important;
-  filter: none !important;
-}
-
-/* 5) Zoom logos : réduit (évite repaint lourd) */
-#channelList .channel-item:hover .channel-logo{
-  transform: translateZ(0) scale(1.03) !important;
-  box-shadow: var(--shadow-neon) !important;
-}
-
-/* 6) Isolation rendu overlays (bon pour l’INP) */
-#radioOverlayLayer,
-.streamurl-overlay{
-  contain: layout paint;
-  transform: translateZ(0);
-}
-
-/* 7) Respect “réduire les animations” */
-@media (prefers-reduced-motion: reduce){
-  *{ animation: none !important; transition: none !important; }
-}
