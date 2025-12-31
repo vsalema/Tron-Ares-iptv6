@@ -47,7 +47,11 @@
       <button id="clearSearchBtn" class="clear-search-btn">✖</button>
     </div>
 
-    <button class="btn btn-ghost" id="verifyLinksBtn" title="Vérifier les liens (toutes listes)">Vérifier</button>
+    <button class="btn btn-ghost" id="verifyLinksBtn"
+            title="Vérifier les liens (toutes listes)"
+            onclick="try{window.verifyAllLinks && window.verifyAllLinks()}catch(e){}">
+      Vérifier
+    </button>
   </div>
 </div>
 <!-- Mini player radio R.Alfa -->

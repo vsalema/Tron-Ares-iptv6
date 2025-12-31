@@ -316,6 +316,40 @@ body {
   min-width: 0;
 }
 
+/* Voyant lien (vert/rouge/?) affiché à côté des titres */
+.link-dot{
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(0, 229, 255, 0.22);
+  background: rgba(127, 159, 179, 0.18);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.25) inset;
+}
+
+.link-dot--pending{
+  border-color: rgba(255, 145, 0, 0.65);
+  background: rgba(255, 145, 0, 0.22);
+  box-shadow: 0 0 10px rgba(255, 145, 0, 0.18);
+}
+
+.link-dot--ok{
+  border-color: rgba(0, 229, 255, 0.75);
+  background: rgba(0, 229, 255, 0.26);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.18);
+}
+
+.link-dot--bad{
+  border-color: rgba(255, 68, 0, 0.85);
+  background: rgba(255, 68, 0, 0.25);
+  box-shadow: 0 0 12px rgba(255, 68, 0, 0.16);
+}
+
+.link-dot--unknown{
+  border-color: rgba(127, 159, 179, 0.55);
+  background: rgba(127, 159, 179, 0.16);
+}
+
 .channel-num {
   flex: 0 0 auto;
   font-size: 10px;

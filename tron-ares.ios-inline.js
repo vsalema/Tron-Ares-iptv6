@@ -164,6 +164,7 @@ const castLauncher = document.getElementById('castLauncher');
 // --- Recherche ---
 const globalSearchInput = document.getElementById('globalSearchInput');
 const clearSearchBtn = document.getElementById('clearSearchBtn');
+const verifyLinksBtn = document.getElementById('verifyLinksBtn');
 
 // --- MINI RADIO R.ALFA + LUNA (postMessage) ---
 const miniRadioEl = document.getElementById('miniRadioPlayer');
@@ -1084,6 +1085,21 @@ function createChannelElement(entry, index, sourceType) {
   titleDiv.className = 'channel-title';
   titleDiv.textContent = normalizeName(entry.name);
 
+  // --- Voyant lien (vert/rouge/?) à côté du titre ---
+  // Par défaut: neutre (pas encore vérifié)
+  const linkDot = document.createElement('span');
+  linkDot.className = 'link-dot';
+  const st0 = entry?.linkCheck?.state || '';
+  if (st0 === 'ok') linkDot.classList.add('link-dot--ok');
+  else if (st0 === 'fail') linkDot.classList.add('link-dot--bad');
+  else if (st0 === 'pending') linkDot.classList.add('link-dot--pending');
+  else if (st0 === 'unknown') linkDot.classList.add('link-dot--unknown');
+  // Tooltip
+  try {
+    const detail = entry?.linkCheck?.detail ? String(entry.linkCheck.detail) : '';
+    linkDot.title = detail || 'État du lien (cliquer sur Vérifier)';
+  } catch {}
+
   // Numéro de chaîne (affichage)
   const numDiv = document.createElement('div');
   numDiv.className = 'channel-num';
@@ -1093,6 +1109,7 @@ function createChannelElement(entry, index, sourceType) {
   titleRow.className = 'channel-title-row';
   titleRow.appendChild(numDiv);
   titleRow.appendChild(titleDiv);
+  titleRow.appendChild(linkDot);
 
   const subDiv = document.createElement('div');
   subDiv.className = 'channel-sub';
@@ -1113,6 +1130,27 @@ function createChannelElement(entry, index, sourceType) {
     ytTag.className = 'tag-chip tag-chip--iframe';
     ytTag.textContent = 'YOUTUBE';
     tagsDiv.appendChild(ytTag);
+  }
+
+  // --- Badge check (OK/KO/?) ---
+  if (entry.linkCheck && entry.linkCheck.state) {
+    const st = entry.linkCheck.state;
+    const chip = document.createElement('div');
+    chip.className = 'tag-chip ' + (
+      st === 'ok' ? 'tag-chip--ok' :
+      st === 'fail' ? 'tag-chip--bad' :
+      st === 'pending' ? 'tag-chip--pending' :
+      'tag-chip--unknown'
+    );
+    chip.textContent =
+      st === 'ok' ? 'OK' :
+      st === 'fail' ? 'KO' :
+      st === 'pending' ? 'TEST' : '?';
+
+    const detail = entry.linkCheck.detail ? String(entry.linkCheck.detail) : '';
+    const ms = Number.isFinite(entry.linkCheck.ms) ? ` • ${Math.round(entry.linkCheck.ms)}ms` : '';
+    chip.title = (detail ? detail : 'Vérification du lien') + ms;
+    tagsDiv.appendChild(chip);
   }
 
   metaDiv.appendChild(titleRow);
@@ -2400,6 +2438,357 @@ if (clearSearchBtn && globalSearchInput) {
 }
 
 
+
+
+// =====================================================
+// VERIFY LINKS (toutes listes) — CHECK STREAMS / IFRAMES
+// =====================================================
+let linksVerifyRunning = false;
+let linksVerifyCancel = false;
+
+function _allEntriesForVerify() {
+  // Favoris = vues sur ces mêmes entrées → inutile de re-tester
+  return [
+    ...frChannels,
+    ...channels,
+    ...iframeItems
+  ];
+}
+
+function _setLinkCheck(entry, state, detail = '', ms = undefined) {
+  entry.linkCheck = {
+    state,
+    detail: detail ? String(detail) : '',
+    ms: Number.isFinite(ms) ? ms : undefined,
+    ts: Date.now()
+  };
+}
+
+function _isHlsUrl(url) {
+  return /\.m3u8(\?|$)/i.test(url || '');
+}
+function _isDashUrl(url) {
+  return /\.mpd(\?|$)/i.test(url || '');
+}
+function _isAudioUrl(url) {
+  return /\.(mp3|aac|m4a|ogg|wav)(\?|$)/i.test(url || '');
+}
+
+async function _headProbe(url, timeoutMs = 4500) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      mode: 'cors',
+      redirect: 'follow',
+      cache: 'no-store',
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    return { kind: 'cors', ok: res.ok, status: res.status };
+  } catch (e) {
+    clearTimeout(t);
+    return { kind: 'error', error: e };
+  }
+}
+
+function _attachHidden(el) {
+  try {
+    el.style.position = 'fixed';
+    el.style.left = '-9999px';
+    el.style.top = '-9999px';
+    el.style.width = '1px';
+    el.style.height = '1px';
+    el.style.opacity = '0';
+    el.muted = true;
+    el.volume = 0;
+    document.body.appendChild(el);
+  } catch {}
+  return el;
+}
+
+function _cleanupHidden(el) {
+  try { el.pause?.(); } catch {}
+  try { el.removeAttribute?.('src'); } catch {}
+  try { el.load?.(); } catch {}
+  try { el.remove?.(); } catch {}
+}
+
+function _mediaProbe(url, kind = 'video', timeoutMs = 7000) {
+  return new Promise((resolve) => {
+    const el = document.createElement(kind === 'audio' ? 'audio' : 'video');
+    el.preload = 'metadata';
+    el.playsInline = true;
+    _attachHidden(el);
+
+    const done = (state, detail) => {
+      clearTimeout(timer);
+      el.removeEventListener('loadedmetadata', onOk);
+      el.removeEventListener('canplay', onOk);
+      el.removeEventListener('error', onErr);
+      _cleanupHidden(el);
+      resolve({ state, detail });
+    };
+
+    const onOk = () => done('ok', 'Media metadata OK');
+    const onErr = () => done('fail', 'Erreur chargement media');
+
+    el.addEventListener('loadedmetadata', onOk, { once: true });
+    el.addEventListener('canplay', onOk, { once: true });
+    el.addEventListener('error', onErr, { once: true });
+
+    const timer = setTimeout(() => done('unknown', 'Timeout'), timeoutMs);
+
+    try {
+      el.src = url;
+      el.load();
+    } catch {
+      done('unknown', 'Impossible de tester');
+    }
+  });
+}
+
+function _hlsProbe(url, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    const el = document.createElement('video');
+    el.preload = 'metadata';
+    el.playsInline = true;
+    _attachHidden(el);
+
+    const start = performance.now();
+    let hls = null;
+
+    const done = (state, detail) => {
+      clearTimeout(timer);
+      try {
+        if (hls) hls.destroy();
+      } catch {}
+      _cleanupHidden(el);
+      resolve({ state, detail, ms: performance.now() - start });
+    };
+
+    const timer = setTimeout(() => done('unknown', 'Timeout HLS'), timeoutMs);
+
+    try {
+      const canNative = !!el.canPlayType && el.canPlayType('application/vnd.apple.mpegurl');
+      // iOS/Safari : HLS natif
+      if (canNative && (!window.Hls || !Hls.isSupported())) {
+        _mediaProbe(url, 'video', timeoutMs).then(r => done(r.state, 'HLS natif • ' + r.detail));
+        return;
+      }
+
+      if (!window.Hls || !Hls.isSupported()) {
+        done('unknown', 'Hls.js non supporté');
+        return;
+      }
+
+      hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false
+      });
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => done('ok', 'HLS manifest OK'));
+      hls.on(Hls.Events.ERROR, (_evt, data) => {
+        if (data && data.fatal) {
+          done('fail', 'HLS fatal: ' + (data.details || data.type || 'error'));
+        }
+      });
+
+      hls.attachMedia(el);
+      hls.loadSource(url);
+    } catch (e) {
+      done('unknown', 'HLS probe error');
+    }
+  });
+}
+
+function _dashProbe(url, timeoutMs = 9000) {
+  return new Promise((resolve) => {
+    const el = document.createElement('video');
+    el.preload = 'metadata';
+    el.playsInline = true;
+    _attachHidden(el);
+
+    const start = performance.now();
+    let player = null;
+
+    const done = (state, detail) => {
+      clearTimeout(timer);
+      try {
+        if (player) player.reset();
+      } catch {}
+      _cleanupHidden(el);
+      resolve({ state, detail, ms: performance.now() - start });
+    };
+
+    const timer = setTimeout(() => done('unknown', 'Timeout DASH'), timeoutMs);
+
+    try {
+      if (!window.dashjs || !dashjs.MediaPlayer) {
+        done('unknown', 'dash.js absent');
+        return;
+      }
+
+      player = dashjs.MediaPlayer().create();
+      player.updateSettings({
+        streaming: { fastSwitchEnabled: true }
+      });
+
+      const onInited = () => done('ok', 'DASH init OK');
+      const onErr = (e) => done('fail', 'DASH error');
+
+      player.on(dashjs.MediaPlayer.events.STREAM_INITIALIZED, onInited);
+      player.on(dashjs.MediaPlayer.events.ERROR, onErr);
+
+      player.initialize(el, url, false);
+    } catch (e) {
+      done('unknown', 'DASH probe error');
+    }
+  });
+}
+
+async function _probeEntry(entry) {
+  const url = (entry?.url || '').trim();
+  if (!url) return { state: 'fail', detail: 'URL vide' };
+
+  // IFRAMES / YouTube
+  if (entry.isIframe || isYoutubeUrl(url) || entry.listType === 'iframe') {
+    const head = await _headProbe(url);
+    if (head.kind === 'cors') {
+      return head.ok ? { state: 'ok', detail: 'HTTP ' + head.status } : { state: 'fail', detail: 'HTTP ' + head.status };
+    }
+    // CORS / opaque : on ne peut pas conclure
+    return { state: 'unknown', detail: 'CORS / X-Frame-Options possible' };
+  }
+
+  // STREAMS
+  // 1) HEAD si possible (rapide)
+  const head = await _headProbe(url);
+  if (head.kind === 'cors') {
+    if (!head.ok) return { state: 'fail', detail: 'HTTP ' + head.status };
+    // OK côté HTTP → on continue quand même pour HLS/DASH, sinon on valide
+    if (!_isHlsUrl(url) && !_isDashUrl(url)) return { state: 'ok', detail: 'HTTP ' + head.status };
+  }
+
+  // 2) Probes “player-like”
+  if (_isHlsUrl(url)) return await _hlsProbe(url);
+  if (_isDashUrl(url)) return await _dashProbe(url);
+  if (_isAudioUrl(url)) return await _mediaProbe(url, 'audio', 6500);
+  return await _mediaProbe(url, 'video', 6500);
+}
+
+async function verifyAllLinks() {
+  if (linksVerifyRunning) {
+    linksVerifyCancel = true;
+    setStatus('Arrêt en cours…');
+    if (verifyLinksBtn) verifyLinksBtn.textContent = 'Vérifier';
+    return;
+  }
+
+  const entries = _allEntriesForVerify();
+  if (!entries.length) {
+    setStatus('Aucune entrée à vérifier');
+    return;
+  }
+
+  linksVerifyRunning = true;
+  linksVerifyCancel = false;
+
+  if (verifyLinksBtn) verifyLinksBtn.textContent = 'Stop';
+  setStatus('Vérification des liens…');
+
+  // Marque "pending" sur toutes les entrées (sans spammer le render)
+  for (const e of entries) _setLinkCheck(e, 'pending', 'Test…');
+  renderLists();
+
+  const concurrency = 4;
+  let i = 0;
+  let ok = 0, fail = 0, unknown = 0;
+
+  const worker = async () => {
+    while (true) {
+      if (linksVerifyCancel) return;
+      const idx = i++;
+      if (idx >= entries.length) return;
+
+      const entry = entries[idx];
+      const label = normalizeName(entry?.name || 'Sans titre');
+
+      const t0 = performance.now();
+      try {
+        const r = await _probeEntry(entry);
+        const ms = performance.now() - t0;
+
+        if (r.state === 'ok') ok++;
+        else if (r.state === 'fail') fail++;
+        else unknown++;
+
+        _setLinkCheck(entry, r.state, r.detail || '', ms);
+      } catch (e) {
+        unknown++;
+        _setLinkCheck(entry, 'unknown', 'Erreur test', performance.now() - t0);
+      }
+
+      // UI progress (léger)
+      if (statusPill) statusPill.textContent = `Check ${idx + 1}/${entries.length}`;
+      if ((idx + 1) % 12 === 0) renderLists();
+    }
+  };
+
+  try {
+    await Promise.all(Array.from({ length: concurrency }, worker));
+  } finally {
+    linksVerifyRunning = false;
+    if (verifyLinksBtn) verifyLinksBtn.textContent = 'Vérifier';
+    renderLists();
+
+    if (linksVerifyCancel) {
+      setStatus('Vérification stoppée');
+      return;
+    }
+
+    setStatus(`Vérif OK:${ok} • KO:${fail} • ?:${unknown}`);
+    alert(`Vérification terminée ✅\n\nOK: ${ok}\nKO: ${fail}\nInconnu: ${unknown}\n\nAstuce: les badges OK/KO/? apparaissent sur chaque entrée.`);
+  }
+}
+
+// Expose (fallback) : permet un onclick HTML ou un test rapide dans la console
+try { window.verifyAllLinks = verifyAllLinks; } catch {}
+
+function bindVerifyLinksButton() {
+  const btn = document.getElementById('verifyLinksBtn');
+  if (!btn) return false;
+  if (btn.__tronVerifyBound) return true;
+  btn.__tronVerifyBound = true;
+
+  btn.addEventListener('click', (ev) => {
+    // sécurité: éviter un submit si jamais il est dans un <form>
+    try { ev.preventDefault(); } catch {}
+    ev.stopPropagation();
+    verifyAllLinks();
+  });
+  return true;
+}
+
+// Bind robuste (au cas où le bouton est injecté tard / cache / etc.)
+bindVerifyLinksButton();
+document.addEventListener('DOMContentLoaded', () => {
+  bindVerifyLinksButton();
+  setTimeout(bindVerifyLinksButton, 0);
+  setTimeout(bindVerifyLinksButton, 250);
+});
+
+// Event delegation (dernier filet de sécurité)
+document.addEventListener('click', (ev) => {
+  const t = ev.target;
+  const btn = t && (t.id === 'verifyLinksBtn' ? t : (t.closest ? t.closest('#verifyLinksBtn') : null));
+  if (!btn) return;
+  if (ev.__tronVerifyHandled) return;
+  ev.__tronVerifyHandled = true;
+  try { ev.preventDefault(); } catch {}
+  verifyAllLinks();
+});
 
 // Sections repliables
 document.querySelectorAll('.loader-section .collapsible-label').forEach(label => {
